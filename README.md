@@ -26,9 +26,13 @@ registers with the configured values.
 ```
 创建配置文件：
 cp config.example.toml config.toml
-安装依赖：github.com/goburrow/modbus
-启动服务端：go run ./cmd/server --config config.toml
-运行客户端：go run ./cmd/client
+安装依赖：github.com/goburrow/modbus && go mod tidy
+启动单模拟器（config.toml）与客户端联调：
+终端1：go run ./cmd/server --config config.toml
+终端2：go run ./cmd/client 
+启动并发服务端（如果使用 server 管理器）：
+go run ./cmd/servers --config config/config.yaml
+go run ./cmd/collector --config config/config.yaml
 ```
 
 It reads each `[[registers]]` entry once and prints the value. Example output:

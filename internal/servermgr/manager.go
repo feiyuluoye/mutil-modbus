@@ -1,15 +1,19 @@
 package servermgr
 
 import (
-	"context"
-	"fmt"
-	"log"
-	"strings"
-	"sync"
-	"time"
+    "context"
+    "encoding/csv"
+    "errors"
+    "fmt"
+    "log"
+    "os"
+    "strconv"
+    "strings"
+    "sync"
+    "time"
 
-	collector "modbus-simulator/internal/collector"
-	"modbus-simulator/internal/modbus"
+    collector "modbus-simulator/internal/collector"
+    "modbus-simulator/internal/modbus"
 )
 
 // Manager spins up multiple Modbus servers concurrently from YAML config.
@@ -19,6 +23,57 @@ type Manager struct {
 	Cfg     collector.RootConfig
 	servers map[string]*modbus.Server
 	mu      sync.Mutex
+}
+
+// loadCSV reads a CSV file where the header row defines column names.
+// Returns a slice of rows as map[column]uint16, suitable for uint16/boolean registers.
+func loadCSV(path string) ([]map[string]uint16, error) {
+    f, err := os.Open(path)
+    if err != nil { return nil, err }
+    defer f.Close()
+    r := csv.NewReader(f)
+    records, err := r.ReadAll()
+    if err != nil { return nil, err }
+    if len(records) < 2 { return nil, errors.New("csv must contain header and at least one data row") }
+    header := records[0]
+    rows := make([]map[string]uint16, 0, len(records)-1)
+    for _, rec := range records[1:] {
+        if len(rec) != len(header) { return nil, errors.New("csv record length mismatch") }
+        row := make(map[string]uint16, len(header))
+        for i, key := range header {
+            v, err := strconv.ParseUint(rec[i], 10, 16)
+            if err != nil { return nil, fmt.Errorf("invalid value for column %s: %w", key, err) }
+            row[strings.TrimSpace(key)] = uint16(v)
+        }
+        rows = append(rows, row)
+    }
+    return rows, nil
+}
+
+// applyRowToServer writes one CSV row into the server's registers based on point names.
+func applyRowToServer(server *modbus.Server, s collector.ServerConfig, rows []map[string]uint16, index int) {
+    if len(rows) == 0 { return }
+    row := rows[index]
+    for _, dev := range s.Devices {
+        for _, p := range dev.Points {
+            key := strings.TrimSpace(p.Name)
+            val, ok := row[key]
+            if !ok {
+                // no matching column; skip
+                continue
+            }
+            switch strings.ToLower(p.RegisterType) {
+            case "holding":
+                _ = server.SetHoldingRegister(p.Address, val)
+            case "input":
+                _ = server.SetInputRegister(p.Address, val)
+            case "coil":
+                _ = server.SetCoil(p.Address, val > 0)
+            case "discrete":
+                _ = server.SetDiscreteInput(p.Address, val > 0)
+            }
+        }
+    }
 }
 
 func NewManager(cfg collector.RootConfig) *Manager {
@@ -84,6 +139,38 @@ func (m *Manager) Run(ctx context.Context) error {
 						_ = server.SetDiscreteInput(p.Address, false)
 					}
 				}
+			}
+
+			// Load CSV data and periodically write to registers following cmd/server simulator
+			rows, err := loadCSV("data/example_data.csv")
+			if err != nil {
+				log.Printf("server %s: load csv failed: %v (skipping periodic updates)", s.ServerID, err)
+			} else if len(rows) == 0 {
+				log.Printf("server %s: csv has no data rows (skipping periodic updates)", s.ServerID)
+			} else {
+				// interval from frequency map; fallback 3s
+				interval := m.Cfg.Frequency[s.ServerID]
+				if interval <= 0 {
+					interval = 3 * time.Second
+				}
+				ticker := time.NewTicker(interval)
+				defer ticker.Stop()
+
+				// apply first row immediately
+				applyRowToServer(server, s, rows, 0)
+
+				go func() {
+					idx := 0
+					for {
+						select {
+						case <-ctx.Done():
+							return
+						case <-ticker.C:
+							idx = (idx + 1) % len(rows)
+							applyRowToServer(server, s, rows, idx)
+						}
+					}
+				}()
 			}
 
 			// wait for context cancellation, then close
