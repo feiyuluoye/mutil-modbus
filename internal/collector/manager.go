@@ -6,6 +6,8 @@ import (
     "strings"
     "sync"
     "time"
+
+    dbpkg "modbus-simulator/internal/db"
 )
 
 // Manager coordinates running multiple device collectors concurrently.
@@ -22,7 +24,8 @@ func (m *Manager) Run(ctx context.Context) error {
     if m.Cfg.System.Storage.Enabled {
         ft := strings.ToLower(strings.TrimSpace(m.Cfg.System.Storage.FileType))
         switch ft {
-        case "", "csv", "json", "jsonl", "json+csv", "csv+json", "both", "all":
+        case "", "csv", "json", "jsonl", "json+csv", "csv+json", "both", "all",
+            "db", "json+db", "db+json", "csv+db", "db+csv":
             s, err := NewStorage(
                 m.Cfg.System.Storage.DBPath,
                 ft,
@@ -34,6 +37,12 @@ func (m *Manager) Run(ctx context.Context) error {
             } else {
                 store = s
                 storeClose = func() { store.Close() }
+                // If DB is enabled and empty, initialize schema data from config
+                if store.enableDB && store.db != nil {
+                    if err := m.initDatabaseFromConfig(store.db); err != nil {
+                        log.Printf("database init failed: %v", err)
+                    }
+                }
                 storeHandler := store.Handle
                 if m.OnValue == nil {
                     m.OnValue = storeHandler
@@ -52,7 +61,7 @@ func (m *Manager) Run(ctx context.Context) error {
                 m.OnValue = m.wrapHandler()
             }
         default:
-            log.Printf("unknown storage.file_type %q (expected log/csv/json/json+csv)", ft)
+            log.Printf("unknown storage.file_type %q (expected log/csv/json/db and combinations like json+csv/json+db/csv+db)", ft)
         }
     }
 
@@ -123,4 +132,73 @@ func (m *Manager) wrapHandler() ResultHandler {
         }
     }
     return m.OnValue
+}
+
+// initDatabaseFromConfig populates servers and devices tables from the loaded config
+// when the servers table is currently empty. It is safe to call multiple times.
+func (m *Manager) initDatabaseFromConfig(db *dbpkg.DB) error {
+    // Check if servers table has any rows
+    var count int
+    if err := db.SQL.QueryRow("SELECT COUNT(*) FROM servers").Scan(&count); err != nil {
+        return err
+    }
+    if count > 0 {
+        return nil
+    }
+
+    tx, err := db.SQL.Begin()
+    if err != nil {
+        return err
+    }
+    defer func() {
+        if err != nil {
+            _ = tx.Rollback()
+        }
+    }()
+
+    // Insert servers
+    for _, srv := range m.Cfg.Servers {
+        var pollStr string
+        if d, ok := m.Cfg.Frequency[srv.ServerID]; ok && d > 0 {
+            pollStr = d.String()
+        }
+        _, err = tx.Exec(
+            `INSERT OR IGNORE INTO servers
+            (server_id, server_name, protocol, host, port, timeout, retry_count, enabled, poll_interval)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            srv.ServerID,
+            srv.ServerName,
+            strings.ToLower(strings.TrimSpace(srv.Protocol)),
+            srv.Connection.Host,
+            srv.Connection.Port,
+            srv.Timeout.String(),
+            srv.RetryCount,
+            srv.Enabled,
+            pollStr,
+        )
+        if err != nil {
+            return err
+        }
+        // Insert devices for this server
+        for _, dev := range srv.Devices {
+            _, err = tx.Exec(
+                `INSERT OR REPLACE INTO devices
+                (device_id, server_id, vendor, slave_id, poll_interval)
+                VALUES (?, ?, ?, ?, ?)`,
+                dev.DeviceID,
+                srv.ServerID,
+                dev.Vendor,
+                int64(dev.SlaveID),
+                dev.PollInterval.String(),
+            )
+            if err != nil {
+                return err
+            }
+        }
+    }
+
+    if err = tx.Commit(); err != nil {
+        return err
+    }
+    return nil
 }

@@ -6,8 +6,8 @@ system:
     max_queue_size: 1000
   storage:
     enabled: true
-    file_type: csv
-    db_path: "./store"
+    file_type: db
+    db_path: "./data.sqlite"
     max_workers: 5
     max_queue_size: 500
 
