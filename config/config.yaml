@@ -1,0 +1,70 @@
+# 系统配置
+system:
+  processing:
+    enabled: true
+    max_workers: 10
+    max_queue_size: 1000
+  storage:
+    enabled: true
+    db_path: "./data.db"
+    max_workers: 5
+    max_queue_size: 500
+
+# 采集频率配置，按照服务器设备ID配置
+frequency:
+  plc_server_1: "5s"
+  rtu_server_1: "10s"
+
+# 服务器配置
+servers:
+  - server_id: "plc_server_1"
+    server_name: "生产线PLC服务器"
+    protocol: "modbus-tcp"
+    connection:
+      host: "0.0.0.0"
+      port: 1502
+    timeout: "10s"
+    retry_count: 3
+    enabled: true
+    devices:
+      - device_id: "device_001"
+        vendor: "simulator"
+        slave_id: 1
+        poll_interval: "5s"
+        points:
+          # 对齐 config.toml
+          - name: "temperature"
+            address: 1
+            register_type: "holding"
+            data_type: "uint16"
+            byte_order: "ABCD"
+            scale: 1
+            offset: 0
+            unit: ""
+
+          - name: "humidity"
+            address: 0
+            register_type: "input"
+            data_type: "uint16"
+            byte_order: "ABCD"
+            scale: 1
+            offset: 0
+            unit: ""
+
+          - name: "pump"
+            address: 5
+            register_type: "coil"
+            data_type: "uint16"
+            byte_order: "ABCD"
+            scale: 1
+            offset: 0
+            unit: ""
+
+          - name: "alarm"
+            address: 2
+            register_type: "discrete"
+            data_type: "uint16"
+            byte_order: "ABCD"
+            scale: 1
+            offset: 0
+            unit: ""

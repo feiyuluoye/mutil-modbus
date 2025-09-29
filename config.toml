@@ -2,7 +2,7 @@ csv_file = "data/example_data.csv"
 update_interval = "3s"
 
 [server]
-listen_address = ":1503"
+listen_address = ":1502"
 
 [[registers]]
 type = "holding"
