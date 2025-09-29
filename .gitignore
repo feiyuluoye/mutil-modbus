@@ -1,0 +1,40 @@
+# Build outputs
+/server
+*.exe
+*.out
+*.test
+
+# IDE/editor files
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+
+# Go workspace (optional to track; ignore if used locally)
+go.work
+go.work.sum
+
+# Build directories
+bin/
+build/
+dist/
+tmp/
+
+# Dependencies (if vendor mode is used locally)
+vendor/
+
+# Coverage & profiling
+coverage.out
+*.cov
+*.coverprofile
+*.prof
+*.pprof
+
+# Logs & runtime
+*.log
+*.pid
+
+# Env files
+.env
+.env.*.local

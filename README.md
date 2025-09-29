@@ -21,37 +21,32 @@ registers with the configured values.
 4. **Prepare a CSV file** containing the columns referenced in the
    configuration.
 
-```
 # Example
+
+```
+创建配置文件：
 cp config.example.toml config.toml
+安装依赖：github.com/goburrow/modbus
+启动服务端：go run ./cmd/server --config config.toml
+运行客户端：go run ./cmd/client
 ```
 
-The example configuration references `data/example_data.csv`, which contains
-sample telemetry rows.
-
-## Running the simulator
+It reads each `[[registers]]` entry once and prints the value. Example output:
 
 ```
-go run ./cmd/server --config config.toml
+temperature (holding@1) = <uint16>
+humidity (input@0) = <uint16>
+pump (coil@5) = <true|false>
+alarm (discrete@2) = <true|false>
 ```
 
-The server listens on the address configured in the TOML file (default `:1502`)
-and will rotate through the CSV rows on the configured interval, updating the
-Modbus register values accordingly.
+Notes:
 
-Use any Modbus TCP client to read from the configured registers. The simulator
-supports the following Modbus function codes:
-
-- `0x01` – Read Coils
-- `0x02` – Read Discrete Inputs
-- `0x03` – Read Holding Registers
-- `0x04` – Read Input Registers
+- Run the client from the repo root so it can find `config.toml`, or adjust the path in code.
+- If you change `server.listen_address`, restart the server; the client reads it from `config.toml`.
 
 ## Configuration Reference
 
-- `csv_file`: Path to the CSV file containing data rows.
-- `update_interval`: Go duration string that controls how often registers are
-  updated (e.g., `"5s"`).
 - `[server]` section:
   - `listen_address`: TCP address for the Modbus server (default `:1502`).
 - `[[registers]]` array:
@@ -61,4 +56,5 @@ supports the following Modbus function codes:
 
 The simulator loops through the CSV rows continuously. Coil and discrete input
 values treat any non-zero CSV value as `true`.
+
 # mutil-modbus
