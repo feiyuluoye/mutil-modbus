@@ -38,3 +38,4 @@ coverage.out
 # Env files
 .env
 .env.*.local
+store/*
