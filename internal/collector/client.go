@@ -19,6 +19,8 @@ import (
 type PointValue struct {
 	ServerID  string
 	DeviceID  string
+	Connection string
+	SlaveID   uint8
 	PointName string
 	Address   uint16
 	Register  string // holding|input|coil|discrete
@@ -39,7 +41,8 @@ type Collector struct {
 	Handler ResultHandler
 
 	// generic handler for TCP or RTU
-	handler handlerWithConn
+	handler  handlerWithConn
+	connAddr string
 }
 
 // handlerWithConn embeds mb.ClientHandler and exposes Connect/Close used for lifecycle.
@@ -97,6 +100,7 @@ func (c *Collector) Run(ctx context.Context) error {
 		return err
 	}
 	c.handler = h
+	c.connAddr = addr
 
 	// initial connect with simple retries
 	retry := c.Server.RetryCount
@@ -183,6 +187,8 @@ func (c *Collector) readPoint(client mb.Client, p Point) (PointValue, error) {
 	pv := PointValue{
 		ServerID:  c.Server.ServerID,
 		DeviceID:  c.Device.DeviceID,
+		Connection: c.connAddr,
+		SlaveID:  c.Device.SlaveID,
 		PointName: p.Name,
 		Address:   p.Address,
 		Register:  rt,

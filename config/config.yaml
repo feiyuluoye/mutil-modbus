@@ -13,6 +13,7 @@ system:
 # 采集频率配置，按照服务器设备ID配置
 frequency:
   plc_server_1: "5s"
+  plc_server_2: "5s"
   rtu_server_1: "10s"
 
 # 服务器配置

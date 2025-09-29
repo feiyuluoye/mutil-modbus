@@ -69,7 +69,7 @@ func NewStorage(dbPath string, maxWorkers, maxQueue int) (*Storage, error) {
 
 	// initialize CSV header if file is empty
 	if off, _ := cf.Seek(0, os.SEEK_END); off == 0 {
-		if err := s.csvWriter.Write([]string{"timestamp","server_id","device_id","point_name","address","register","unit","value"}); err != nil {
+		if err := s.csvWriter.Write([]string{"timestamp","server_id","device_id","connection","slave_id","point_name","address","register","unit","value"}); err != nil {
 			return nil, fmt.Errorf("write csv header: %w", err)
 		}
 		s.csvWriter.Flush()
@@ -129,6 +129,8 @@ func (s *Storage) writeJSONL(v PointValue) error {
 		"timestamp": v.Timestamp.Format(time.RFC3339Nano),
 		"server_id": v.ServerID,
 		"device_id": v.DeviceID,
+		"connection": v.Connection,
+		"slave_id": v.SlaveID,
 		"point_name": v.PointName,
 		"address": v.Address,
 		"register": v.Register,
@@ -155,6 +157,8 @@ func (s *Storage) writeCSV(v PointValue) error {
 		v.Timestamp.Format(time.RFC3339Nano),
 		v.ServerID,
 		v.DeviceID,
+		v.Connection,
+		fmt.Sprintf("%d", v.SlaveID),
 		v.PointName,
 		fmt.Sprintf("%d", v.Address),
 		v.Register,
