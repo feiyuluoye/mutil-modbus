@@ -101,6 +101,9 @@ csv_column = "temperature"
 
 - `servers[]`: 定义每个服务器、设备与点位；`points.name` 需与 CSV 列名一致。
 - `frequency`: `server_id -> duration`，控制 CSV 写入周期。
+- `type` / `devices_file`: 服务器设备来源。
+  - `type: device`（默认）：从 `devices` 数组读取点位定义。
+  - `type: csvfile`：通过 `devices_file`（相对或绝对路径）加载设备与点位，例如 `data/plc_device_point.csv`。
 - `system.storage`: 控制采集器输出行为，示例：
 
 ```yaml
@@ -123,6 +126,7 @@ CLI 参数 `--storage-*` 会覆盖上述配置。
 
 - 模拟器数据源：`data/example_data.csv`
 - 采集器输出：`data/collector.jsonl`, `data/collector.csv`（取决于 `file_type`）
+- 服务器设备清单：`data/plc_device_point.csv`（示例，供 `plc_server_2` 使用）
 - 快照导出：按命令指定的 `out.json`, `out.csv`
 
 CSV 行示例：

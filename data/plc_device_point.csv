@@ -1,0 +1,9 @@
+device_id,vendor,slave_id,poll_interval,point_name,address,register_type,data_type,byte_order,scale,offset,unit
+device_004,simulator,1,5s,temperature,1,holding,uint16,ABCD,1,0,
+device_004,simulator,1,5s,humidity,0,input,uint16,ABCD,1,0,
+device_004,simulator,1,5s,pump,5,coil,uint16,ABCD,1,0,
+device_004,simulator,1,5s,alarm,2,discrete,uint16,ABCD,1,0,
+device_005,simulator,1,5s,temperature,1,holding,uint16,ABCD,1,0,
+device_005,simulator,1,5s,humidity,0,input,uint16,ABCD,1,0,
+device_005,simulator,1,5s,pump,5,coil,uint16,ABCD,1,0,
+device_005,simulator,1,5s,alarm,2,discrete,uint16,ABCD,1,0,

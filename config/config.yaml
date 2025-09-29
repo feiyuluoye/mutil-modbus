@@ -28,6 +28,7 @@ servers:
     timeout: "10s"
     retry_count: 3
     enabled: true
+    type: "points"
     devices:
       - device_id: "device_001"
         vendor: "simulator"
@@ -80,89 +81,8 @@ servers:
     timeout: "10s"
     retry_count: 3
     enabled: true
-    devices:
-      - device_id: "device_004"
-        vendor: "simulator"
-        slave_id: 1
-        poll_interval: "5s"
-        points:
-          # 对齐 config.toml
-          - name: "temperature"
-            address: 1
-            register_type: "holding"
-            data_type: "uint16"
-            byte_order: "ABCD"
-            scale: 1
-            offset: 0
-            unit: ""
-
-          - name: "humidity"
-            address: 0
-            register_type: "input"
-            data_type: "uint16"
-            byte_order: "ABCD"
-            scale: 1
-            offset: 0
-            unit: ""
-
-          - name: "pump"
-            address: 5
-            register_type: "coil"
-            data_type: "uint16"
-            byte_order: "ABCD"
-            scale: 1
-            offset: 0
-            unit: ""
-
-          - name: "alarm"
-            address: 2
-            register_type: "discrete"
-            data_type: "uint16"
-            byte_order: "ABCD"
-            scale: 1
-            offset: 0
-            unit: ""
-      - device_id: "device_005"
-        vendor: "simulator"
-        slave_id: 1
-        poll_interval: "5s"
-        points:
-          # 对齐 config.toml
-          - name: "temperature"
-            address: 1
-            register_type: "holding"
-            data_type: "uint16"
-            byte_order: "ABCD"
-            scale: 1
-            offset: 0
-            unit: ""
-
-          - name: "humidity"
-            address: 0
-            register_type: "input"
-            data_type: "uint16"
-            byte_order: "ABCD"
-            scale: 1
-            offset: 0
-            unit: ""
-
-          - name: "pump"
-            address: 5
-            register_type: "coil"
-            data_type: "uint16"
-            byte_order: "ABCD"
-            scale: 1
-            offset: 0
-            unit: ""
-
-          - name: "alarm"
-            address: 2
-            register_type: "discrete"
-            data_type: "uint16"
-            byte_order: "ABCD"
-            scale: 1
-            offset: 0
-            unit: ""
+    type: "csvfile"
+    devices_file: "../data/plc_device_point.csv"
 
 
 

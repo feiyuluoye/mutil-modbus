@@ -43,22 +43,22 @@ func loadCSV(path string) ([]map[string]uint16, error) {
 		return nil, errors.New("csv must contain header and at least one data row")
 	}
 	header := records[0]
-	rows := make([]map[string]uint16, 0, len(records)-1)
+	row := make([]map[string]uint16, 0, len(records)-1)
 	for _, rec := range records[1:] {
 		if len(rec) != len(header) {
 			return nil, errors.New("csv record length mismatch")
 		}
-		row := make(map[string]uint16, len(header))
+		m := make(map[string]uint16, len(header))
 		for i, key := range header {
 			v, err := strconv.ParseUint(rec[i], 10, 16)
 			if err != nil {
 				return nil, fmt.Errorf("invalid value for column %s: %w", key, err)
 			}
-			row[strings.TrimSpace(key)] = uint16(v)
+			m[strings.TrimSpace(key)] = uint16(v)
 		}
-		rows = append(rows, row)
+		row = append(row, m)
 	}
-	return rows, nil
+	return row, nil
 }
 
 // applyRowToServer writes one CSV row into the server's registers based on point names.
