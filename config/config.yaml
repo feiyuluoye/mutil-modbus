@@ -6,7 +6,8 @@ system:
     max_queue_size: 1000
   storage:
     enabled: true
-    db_path: "./data"
+    file_type: csv
+    db_path: "./store"
     max_workers: 5
     max_queue_size: 500
 

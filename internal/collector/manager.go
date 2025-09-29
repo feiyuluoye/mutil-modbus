@@ -3,6 +3,7 @@ package collector
 import (
     "context"
     "log"
+    "strings"
     "sync"
     "time"
 )
@@ -19,27 +20,39 @@ func (m *Manager) Run(ctx context.Context) error {
     var store *Storage
     var storeClose func()
     if m.Cfg.System.Storage.Enabled {
-        s, err := NewStorage(
-            m.Cfg.System.Storage.DBPath,
-            m.Cfg.System.Storage.MaxWorkers,
-            m.Cfg.System.Storage.MaxQueueSize,
-        )
-        if err != nil {
-            log.Printf("storage init failed: %v (continuing without storage)", err)
-        } else {
-            store = s
-            storeClose = func() { store.Close() }
-            // set global handler to storage if not already provided
-            if m.OnValue == nil {
-                m.OnValue = store.Handle
+        ft := strings.ToLower(strings.TrimSpace(m.Cfg.System.Storage.FileType))
+        switch ft {
+        case "", "csv", "json", "jsonl", "json+csv", "csv+json", "both", "all":
+            s, err := NewStorage(
+                m.Cfg.System.Storage.DBPath,
+                ft,
+                m.Cfg.System.Storage.MaxWorkers,
+                m.Cfg.System.Storage.MaxQueueSize,
+            )
+            if err != nil {
+                log.Printf("storage init failed: %v (continuing without storage)", err)
             } else {
-                // chain: call user handler then storage
-                userH := m.OnValue
-                m.OnValue = func(v PointValue) error {
-                    _ = userH(v)
-                    return store.Handle(v)
+                store = s
+                storeClose = func() { store.Close() }
+                storeHandler := store.Handle
+                if m.OnValue == nil {
+                    m.OnValue = storeHandler
+                } else {
+                    userH := m.OnValue
+                    m.OnValue = func(v PointValue) error {
+                        if err := userH(v); err != nil {
+                            log.Printf("custom handler error: %v", err)
+                        }
+                        return storeHandler(v)
+                    }
                 }
             }
+        case "log":
+            if m.OnValue == nil {
+                m.OnValue = m.wrapHandler()
+            }
+        default:
+            log.Printf("unknown storage.file_type %q (expected log/csv/json/json+csv)", ft)
         }
     }
 

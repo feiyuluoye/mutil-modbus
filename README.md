@@ -58,10 +58,20 @@ go run ./cmd/collector --config config/config.yaml \
   --storage-enabled --storage-dir data --storage-queue 20000
 ```
 
-启用后会在 `storage-dir`（默认 `data/`）生成：
+`system.storage.file_type` 决定输出模式：
 
-- `collector.jsonl`：每行一条 JSON 数据
-- `collector.csv`：标准 CSV 表格
+- `log`：仅日志输出（默认 wrapHandler），不落盘。
+- `csv`：写入 `storage-dir/collector.csv`。
+- `json` / `jsonl`：写入 `storage-dir/collector.jsonl`。
+- `json+csv` / `csv+json` / `both` / `all`：同时输出 JSONL 与 CSV。
+
+CSV 表头：`timestamp, server_id, device_id, connection, slave_id, point_name, address, register, unit, value`
+
+JSONL 字段示例：
+
+```json
+{"timestamp":"2025-09-29T14:45:32Z","server_id":"plc_server_1","device_id":"device_001","connection":"0.0.0.0:1502","slave_id":1,"point_name":"temperature","address":1,"register":"holding","unit":"","raw":21,"value":21}
+```
 
 ### 一次性快照导出 CLI
 
@@ -91,12 +101,13 @@ csv_column = "temperature"
 
 - `servers[]`: 定义每个服务器、设备与点位；`points.name` 需与 CSV 列名一致。
 - `frequency`: `server_id -> duration`，控制 CSV 写入周期。
-- `system.storage`: 控制采集器落盘行为，示例：
+- `system.storage`: 控制采集器输出行为，示例：
 
 ```yaml
 system:
   storage:
     enabled: true
+    file_type: json+csv   # 支持 log | csv | json | json+csv
     db_path: "data"
     max_workers: 0
     max_queue_size: 10000
@@ -111,7 +122,7 @@ CLI 参数 `--storage-*` 会覆盖上述配置。
 ## 输出文件说明
 
 - 模拟器数据源：`data/example_data.csv`
-- 采集器输出：`data/collector.jsonl`, `data/collector.csv`
+- 采集器输出：`data/collector.jsonl`, `data/collector.csv`（取决于 `file_type`）
 - 快照导出：按命令指定的 `out.json`, `out.csv`
 
 CSV 行示例：

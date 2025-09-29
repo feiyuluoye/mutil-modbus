@@ -3,6 +3,7 @@ package collector
 import (
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -25,6 +26,7 @@ type SystemConfig struct {
 	} `yaml:"processing"`
 	Storage struct {
 		Enabled      bool   `yaml:"enabled"`
+		FileType     string `yaml:"file_type"`
 		DBPath       string `yaml:"db_path"`
 		MaxWorkers   int    `yaml:"max_workers"`
 		MaxQueueSize int    `yaml:"max_queue_size"`
@@ -95,7 +97,10 @@ func LoadYAML(path string) (RootConfig, error) {
 	if cfg.System.Storage.MaxQueueSize < 0 {
 		cfg.System.Storage.MaxQueueSize = 0
 	}
-	// Basic validation
+	cfg.System.Storage.FileType = strings.ToLower(strings.TrimSpace(cfg.System.Storage.FileType))
+	if cfg.System.Storage.FileType == "" {
+		cfg.System.Storage.FileType = "csv"
+	}
 	if len(cfg.Servers) == 0 {
 		return RootConfig{}, fmt.Errorf("no servers configured")
 	}
