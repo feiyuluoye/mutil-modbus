@@ -6,7 +6,7 @@ system:
     max_queue_size: 1000
   storage:
     enabled: true
-    db_path: "./data.db"
+    db_path: "./data"
     max_workers: 5
     max_queue_size: 500
 
@@ -161,4 +161,6 @@ servers:
             scale: 1
             offset: 0
             unit: ""
+
+
 

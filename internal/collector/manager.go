@@ -1,26 +1,54 @@
 package collector
 
 import (
-	"context"
-	"log"
-	"sync"
-	"time"
+    "context"
+    "log"
+    "sync"
+    "time"
 )
 
 // Manager coordinates running multiple device collectors concurrently.
 
 type Manager struct {
-	Cfg     RootConfig
-	OnValue ResultHandler // optional global handler
+    Cfg     RootConfig
+    OnValue ResultHandler // optional global handler
 }
 
 func (m *Manager) Run(ctx context.Context) error {
-	// worker limit
-	maxW := m.Cfg.System.Processing.MaxWorkers
-	if maxW <= 0 {
-		maxW = 10
-	}
-	sem := make(chan struct{}, maxW)
+    // optional storage
+    var store *Storage
+    var storeClose func()
+    if m.Cfg.System.Storage.Enabled {
+        s, err := NewStorage(
+            m.Cfg.System.Storage.DBPath,
+            m.Cfg.System.Storage.MaxWorkers,
+            m.Cfg.System.Storage.MaxQueueSize,
+        )
+        if err != nil {
+            log.Printf("storage init failed: %v (continuing without storage)", err)
+        } else {
+            store = s
+            storeClose = func() { store.Close() }
+            // set global handler to storage if not already provided
+            if m.OnValue == nil {
+                m.OnValue = store.Handle
+            } else {
+                // chain: call user handler then storage
+                userH := m.OnValue
+                m.OnValue = func(v PointValue) error {
+                    _ = userH(v)
+                    return store.Handle(v)
+                }
+            }
+        }
+    }
+
+    // worker limit
+    maxW := m.Cfg.System.Processing.MaxWorkers
+    if maxW <= 0 {
+        maxW = 10
+    }
+    sem := make(chan struct{}, maxW)
 
 	var wg sync.WaitGroup
 
@@ -57,26 +85,29 @@ func (m *Manager) Run(ctx context.Context) error {
 		}
 	}
 
-	// wait until context done, then wait goroutines finish
-	<-ctx.Done()
-	// give collectors a small grace period to exit their loops
-	done := make(chan struct{})
-	go func() { wg.Wait(); close(done) }()
-	select {
-	case <-done:
-	case <-time.After(5 * time.Second):
-		log.Printf("timeout waiting for collectors to stop")
-	}
-	return nil
+    // wait until context done, then wait goroutines finish
+    <-ctx.Done()
+    // give collectors a small grace period to exit their loops
+    done := make(chan struct{})
+    go func() { wg.Wait(); close(done) }()
+    select {
+    case <-done:
+    case <-time.After(5 * time.Second):
+        log.Printf("timeout waiting for collectors to stop")
+    }
+    if storeClose != nil {
+        storeClose()
+    }
+    return nil
 }
 
 func (m *Manager) wrapHandler() ResultHandler {
-	if m.OnValue == nil {
-		// default: log to stdout
-		return func(v PointValue) error {
-			log.Printf("%s %s %s[%d] %f %s", v.ServerID, v.DeviceID, v.PointName, v.Address, v.Value, v.Unit)
-			return nil
-		}
-	}
-	return m.OnValue
+    if m.OnValue == nil {
+        // default: log to stdout
+        return func(v PointValue) error {
+            log.Printf("%s %s %s[%d] %f %s", v.ServerID, v.DeviceID, v.PointName, v.Address, v.Value, v.Unit)
+            return nil
+        }
+    }
+    return m.OnValue
 }

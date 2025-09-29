@@ -1,64 +1,135 @@
 # Modbus Simulator
 
-This repository provides a lightweight Modbus TCP server simulator written in Go.
-Register addresses and CSV data bindings are configured using a TOML file. The
-simulator reads data from a CSV file and periodically updates the Modbus
-registers with the configured values.
+Modbus Simulator 是一个使用 Go 实现的多模组 Modbus TCP 模拟系统，支持单实例模拟器、并发服务器管理、数据采集与文件导出等功能。项目旨在帮助快速构建 Modbus 联调、测试与演示环境。
 
-## Features
+## 功能概览
 
-- Minimal Modbus TCP server that supports reading coils, discrete inputs,
-  holding registers, and input registers.
-- TOML configuration to define server settings, update interval, and register
-  bindings.
-- CSV-driven data updates that cycle through rows on a fixed interval.
+- 最小 Modbus TCP 服务器，支持读 coils、discrete inputs、holding/input registers。
+- 基于 CSV 的寄存器周期写入，支持单实例与多实例并发运行。
+- 数据采集器可实时拉取点位数据，并按需落盘 JSONL/CSV。
+- 支持一次性快照导出，JSON/CSV 两种格式，便于排查和留存。
 
-## Getting Started
+## 目录结构
 
-1. **Install Go** – version 1.20 or later is recommended.
-2. **Clone** this repository and change into the project directory.
-3. **Create a configuration file** based on `config.example.toml`.
-4. **Prepare a CSV file** containing the columns referenced in the
-   configuration.
+- `cmd/server/`：单服务器模拟器，读取 `config.toml`。
+- `cmd/servers/`：并发服务器管理器，读取 `config/config.yaml`，可选快照。
+- `cmd/collector/`：数据采集器，支持 CLI 启用落盘功能。
+- `cmd/export/`：一次性快照导出 CLI。
+- `internal/`：核心实现（Modbus 服务、采集器、输出、模型等）。
+- `config/`：示例 YAML/TOML 配置。
+- `data/`：CSV 数据源及采集输出目录。
 
-# Example
+## 快速开始
 
+1. 安装 Go 1.20+
+2. 克隆仓库并进入目录
+3. `go mod tidy`
+4. 准备配置与 CSV 数据（可使用仓库自带示例）
+5. 参考下方命令运行需要的模块
+
+## 运行示例
+
+### 单服务器模拟器 + 客户端
+
+```bash
+go run ./cmd/server --config config.toml
+go run ./cmd/client --config config.toml
 ```
-创建配置文件：
-cp config.example.toml config.toml
-安装依赖：github.com/goburrow/modbus && go mod tidy
-启动单模拟器（config.toml）与客户端联调：
-终端1：go run ./cmd/server --config config.toml
-终端2：go run ./cmd/client 
-启动并发服务端（如果使用 server 管理器）：
+
+### 并发服务器管理器
+
+```bash
 go run ./cmd/servers --config config/config.yaml
+
+# 仅当需要一次性导出快照时，加上 snapshot 参数
+go run ./cmd/servers --config config/config.yaml \
+  --snapshot-json out.json --snapshot-csv out.csv --snapshot-wait 5s
+```
+
+当提供 `--snapshot-json` 或 `--snapshot-csv` 时，程序会等待 `--snapshot-wait` 时长（默认 `3s`）以便 CSV 写入生效，随后导出快照并退出；否则常驻运行。
+
+### 数据采集器
+
+```bash
 go run ./cmd/collector --config config/config.yaml
+
+# CLI 覆盖 storage 相关配置
+go run ./cmd/collector --config config/config.yaml \
+  --storage-enabled --storage-dir data --storage-queue 20000
 ```
 
-It reads each `[[registers]]` entry once and prints the value. Example output:
+启用后会在 `storage-dir`（默认 `data/`）生成：
 
+- `collector.jsonl`：每行一条 JSON 数据
+- `collector.csv`：标准 CSV 表格
+
+### 一次性快照导出 CLI
+
+```bash
+go run ./cmd/export --config config/config.yaml \
+  --json out.json --csv out.csv --wait 3s
 ```
-temperature (holding@1) = <uint16>
-humidity (input@0) = <uint16>
-pump (coil@5) = <true|false>
-alarm (discrete@2) = <true|false>
+
+`cmd/export` 会自启服务器，等待指定时长后导出当前快照并退出。
+
+## 配置说明
+
+### TOML (`config.toml`, 供 `cmd/server` 使用)
+
+```toml
+[server]
+listen_address = ":1502"
+
+[[registers]]
+name = "temperature"
+type = "holding"
+address = 1
+csv_column = "temperature"
 ```
 
-Notes:
+### YAML (`config/config.yaml`, 供 `cmd/servers` 与 `cmd/collector` 使用)
 
-- Run the client from the repo root so it can find `config.toml`, or adjust the path in code.
-- If you change `server.listen_address`, restart the server; the client reads it from `config.toml`.
+- `servers[]`: 定义每个服务器、设备与点位；`points.name` 需与 CSV 列名一致。
+- `frequency`: `server_id -> duration`，控制 CSV 写入周期。
+- `system.storage`: 控制采集器落盘行为，示例：
 
-## Configuration Reference
+```yaml
+system:
+  storage:
+    enabled: true
+    db_path: "data"
+    max_workers: 0
+    max_queue_size: 10000
+```
 
-- `[server]` section:
-  - `listen_address`: TCP address for the Modbus server (default `:1502`).
-- `[[registers]]` array:
-  - `type`: Register type (`holding`, `input`, `coil`, or `discrete`).
-  - `address`: Register address to update.
-  - `csv_column`: Column name in the CSV file to use for the register value.
+CLI 参数 `--storage-*` 会覆盖上述配置。
 
-The simulator loops through the CSV rows continuously. Coil and discrete input
-values treat any non-zero CSV value as `true`.
+### CSV 数据 (`data/example_data.csv`)
 
-# mutil-modbus
+列名需与点位名称一致，例如 `temperature,humidity,pump,alarm`。
+
+## 输出文件说明
+
+- 模拟器数据源：`data/example_data.csv`
+- 采集器输出：`data/collector.jsonl`, `data/collector.csv`
+- 快照导出：按命令指定的 `out.json`, `out.csv`
+
+CSV 行示例：
+
+```csv
+timestamp,server_id,device_id,point_name,address,register,unit,value
+```
+
+JSONL 行示例：
+
+```json
+{"timestamp":"2025-09-29T13:38:00.123456789Z","server_id":"plc_server_1","device_id":"device_001","point_name":"temperature","address":1,"register":"holding","unit":"","raw":21,"value":21}
+```
+
+## 开发提示
+
+- `internal/servermgr/manager.go` 的 `Snapshot()` 会按 YAML 点位读取当前寄存器值。
+- `internal/collector/storage.go` 使用缓冲队列异步写文件，`max_queue_size` 可调。
+- `internal/output/exporter.go` 支持 JSON/CSV 两种快照格式。
+
+欢迎贡献更多协议扩展、输出格式或改进数据处理逻辑！

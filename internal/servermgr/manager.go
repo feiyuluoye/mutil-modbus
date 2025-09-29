@@ -1,19 +1,20 @@
 package servermgr
 
 import (
-    "context"
-    "encoding/csv"
-    "errors"
-    "fmt"
-    "log"
-    "os"
-    "strconv"
-    "strings"
-    "sync"
-    "time"
+	"context"
+	"encoding/csv"
+	"errors"
+	"fmt"
+	"log"
+	"os"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
 
-    collector "modbus-simulator/internal/collector"
-    "modbus-simulator/internal/modbus"
+	collector "modbus-simulator/internal/collector"
+	"modbus-simulator/internal/modbus"
+	"modbus-simulator/internal/model"
 )
 
 // Manager spins up multiple Modbus servers concurrently from YAML config.
@@ -28,52 +29,64 @@ type Manager struct {
 // loadCSV reads a CSV file where the header row defines column names.
 // Returns a slice of rows as map[column]uint16, suitable for uint16/boolean registers.
 func loadCSV(path string) ([]map[string]uint16, error) {
-    f, err := os.Open(path)
-    if err != nil { return nil, err }
-    defer f.Close()
-    r := csv.NewReader(f)
-    records, err := r.ReadAll()
-    if err != nil { return nil, err }
-    if len(records) < 2 { return nil, errors.New("csv must contain header and at least one data row") }
-    header := records[0]
-    rows := make([]map[string]uint16, 0, len(records)-1)
-    for _, rec := range records[1:] {
-        if len(rec) != len(header) { return nil, errors.New("csv record length mismatch") }
-        row := make(map[string]uint16, len(header))
-        for i, key := range header {
-            v, err := strconv.ParseUint(rec[i], 10, 16)
-            if err != nil { return nil, fmt.Errorf("invalid value for column %s: %w", key, err) }
-            row[strings.TrimSpace(key)] = uint16(v)
-        }
-        rows = append(rows, row)
-    }
-    return rows, nil
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	r := csv.NewReader(f)
+	records, err := r.ReadAll()
+	if err != nil {
+		return nil, err
+	}
+	if len(records) < 2 {
+		return nil, errors.New("csv must contain header and at least one data row")
+	}
+	header := records[0]
+	rows := make([]map[string]uint16, 0, len(records)-1)
+	for _, rec := range records[1:] {
+		if len(rec) != len(header) {
+			return nil, errors.New("csv record length mismatch")
+		}
+		row := make(map[string]uint16, len(header))
+		for i, key := range header {
+			v, err := strconv.ParseUint(rec[i], 10, 16)
+			if err != nil {
+				return nil, fmt.Errorf("invalid value for column %s: %w", key, err)
+			}
+			row[strings.TrimSpace(key)] = uint16(v)
+		}
+		rows = append(rows, row)
+	}
+	return rows, nil
 }
 
 // applyRowToServer writes one CSV row into the server's registers based on point names.
 func applyRowToServer(server *modbus.Server, s collector.ServerConfig, rows []map[string]uint16, index int) {
-    if len(rows) == 0 { return }
-    row := rows[index]
-    for _, dev := range s.Devices {
-        for _, p := range dev.Points {
-            key := strings.TrimSpace(p.Name)
-            val, ok := row[key]
-            if !ok {
-                // no matching column; skip
-                continue
-            }
-            switch strings.ToLower(p.RegisterType) {
-            case "holding":
-                _ = server.SetHoldingRegister(p.Address, val)
-            case "input":
-                _ = server.SetInputRegister(p.Address, val)
-            case "coil":
-                _ = server.SetCoil(p.Address, val > 0)
-            case "discrete":
-                _ = server.SetDiscreteInput(p.Address, val > 0)
-            }
-        }
-    }
+	if len(rows) == 0 {
+		return
+	}
+	row := rows[index]
+	for _, dev := range s.Devices {
+		for _, p := range dev.Points {
+			key := strings.TrimSpace(p.Name)
+			val, ok := row[key]
+			if !ok {
+				// no matching column; skip
+				continue
+			}
+			switch strings.ToLower(p.RegisterType) {
+			case "holding":
+				_ = server.SetHoldingRegister(p.Address, val)
+			case "input":
+				_ = server.SetInputRegister(p.Address, val)
+			case "coil":
+				_ = server.SetCoil(p.Address, val > 0)
+			case "discrete":
+				_ = server.SetDiscreteInput(p.Address, val > 0)
+			}
+		}
+	}
 }
 
 func NewManager(cfg collector.RootConfig) *Manager {
@@ -98,11 +111,18 @@ func (m *Manager) Run(ctx context.Context) error {
 		wg.Add(1)
 		go func(s collector.ServerConfig) {
 			defer wg.Done()
-			select { case sem <- struct{}{}: defer func(){ <-sem }(); case <-ctx.Done(): return }
+			select {
+			case sem <- struct{}{}:
+				defer func() { <-sem }()
+			case <-ctx.Done():
+				return
+			}
 
 			addr := fmt.Sprintf("%s:%d", s.Connection.Host, s.Connection.Port)
 			retry := s.RetryCount
-			if retry < 0 { retry = 0 }
+			if retry < 0 {
+				retry = 0
+			}
 
 			var server *modbus.Server
 			var err error
@@ -179,7 +199,6 @@ func (m *Manager) Run(ctx context.Context) error {
 			m.mu.Lock()
 			delete(m.servers, s.ServerID)
 			m.mu.Unlock()
-			log.Printf("server %s stopped", s.ServerID)
 		}(srv)
 	}
 
@@ -187,4 +206,92 @@ func (m *Manager) Run(ctx context.Context) error {
 	<-ctx.Done()
 	wg.Wait()
 	return nil
+}
+
+// Snapshot reads current values from running servers and returns server/device/point snapshots.
+func (m *Manager) Snapshot() ([]model.ServerSnapshot, error) {
+	m.mu.Lock()
+	servers := make(map[string]*modbus.Server, len(m.servers))
+	for k, v := range m.servers {
+		servers[k] = v
+	}
+	m.mu.Unlock()
+
+	res := make([]model.ServerSnapshot, 0, len(servers))
+	now := time.Now()
+
+	for _, sc := range m.Cfg.Servers {
+		s := servers[sc.ServerID]
+		if s == nil || !sc.Enabled {
+			continue
+		}
+
+		snap := model.ServerSnapshot{
+			ServerID:   sc.ServerID,
+			ServerName: sc.ServerName,
+			Address:    fmt.Sprintf("%s:%d", sc.Connection.Host, sc.Connection.Port),
+			Timestamp:  now,
+		}
+
+		for _, dev := range sc.Devices {
+			ds := model.DeviceSnapshot{
+				DeviceID: dev.DeviceID,
+				Vendor:   dev.Vendor,
+				SlaveID:  dev.SlaveID,
+			}
+			for _, p := range dev.Points {
+				ps := model.PointSnapshot{
+					Name:         p.Name,
+					RegisterType: strings.ToLower(p.RegisterType),
+					Address:      p.Address,
+					Unit:         p.Unit,
+					Timestamp:    now,
+				}
+				switch ps.RegisterType {
+				case "holding":
+					if v, err := modbusGetU16(s, "holding", p.Address); err == nil {
+						ps.ValueUint16 = &v
+					}
+				case "input":
+					if v, err := modbusGetU16(s, "input", p.Address); err == nil {
+						ps.ValueUint16 = &v
+					}
+				case "coil":
+					if b, err := modbusGetBool(s, "coil", p.Address); err == nil {
+						ps.ValueBool = &b
+					}
+				case "discrete":
+					if b, err := modbusGetBool(s, "discrete", p.Address); err == nil {
+						ps.ValueBool = &b
+					}
+				}
+				ds.Points = append(ds.Points, ps)
+			}
+			snap.Devices = append(snap.Devices, ds)
+		}
+		res = append(res, snap)
+	}
+	return res, nil
+}
+
+func modbusGetU16(s *modbus.Server, kind string, addr uint16) (uint16, error) {
+	switch strings.ToLower(kind) {
+	case "holding":
+		return modbus.GetHoldingRegister(s, addr)
+	case "input":
+		return modbus.GetInputRegister(s, addr)
+	default:
+		return 0, fmt.Errorf("unsupported kind %s", kind)
+	}
+}
+
+func modbusGetBool(s *modbus.Server, kind string, addr uint16) (bool, error) {
+	switch strings.ToLower(kind) {
+	case "coil":
+		return modbus.GetCoil(s, addr)
+	case "discrete":
+		return modbus.GetDiscreteInput(s, addr)
+	default:
+		return false, fmt.Errorf("unsupported kind %s", kind)
+	}
 }
