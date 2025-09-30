@@ -2,11 +2,13 @@ package collector
 
 import (
 	"bufio"
+	"context"
 	"encoding/csv"
 	"encoding/json"
 	"errors"
 	"fmt"
 	dbpkg "modbus-simulator/internal/db"
+	"modbus-simulator/internal/model"
 	"os"
 	"path/filepath"
 	"strings"
@@ -263,41 +265,45 @@ func (s *Storage) writeCSV(v PointValue) error {
 // Some columns in the schema (data_type, byte_order) are not available at runtime here;
 // we store empty strings for them, and rely on defaults for scale/offset.
 func (s *Storage) writeDB(v PointValue) error {
-	if s.db == nil || s.db.SQL == nil {
-		return nil
-	}
-	const stmt = `INSERT INTO point_values (
-		device_id, name, address, register_type, data_type, byte_order, unit, value, timestamp
-	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-	_, err := s.db.SQL.Exec(stmt,
-		v.DeviceID,
-		v.PointName,
-		int64(v.Address),
-		v.Register,
-		v.DataType,
-		v.ByteOrder,
-		v.Unit,
-		v.Value,
-		v.Timestamp,
-	)
-	return err
+    if s.db == nil || s.db.ORM == nil {
+        return nil
+    }
+    pv := &model.PointValue{
+        DeviceID:     v.DeviceID,
+        Name:         v.PointName,
+        Address:      int(v.Address),
+        RegisterType: v.Register,
+        DataType:     v.DataType,
+        ByteOrder:    v.ByteOrder,
+        Unit:         v.Unit,
+        Value:        v.Value,
+        Timestamp:    v.Timestamp,
+    }
+    return s.db.SavePointValue(s.ctxOrBackground(), pv)
+}
+
+// ctxOrBackground provides a context for DB operations; if none, uses a short timeout.
+func (s *Storage) ctxOrBackground() context.Context {
+    // use a small timeout to avoid blocking too long
+    ctx, _ := context.WithTimeout(context.Background(), 3*time.Second)
+    return ctx
 }
 
 // Handle implements ResultHandler, enqueueing values for background writers.
 func (s *Storage) Handle(v PointValue) error {
-	// Best-effort enqueue; avoid blocking indefinitely if queue is full.
-	select {
-	case s.q <- v:
-		return nil
-	default:
-		// Fallback to blocking to reduce data loss, but with a short timeout.
-		timer := time.NewTimer(2 * time.Second)
-		defer timer.Stop()
-		select {
-		case s.q <- v:
-			return nil
-		case <-timer.C:
-			return fmt.Errorf("storage queue full: dropping value %s/%s/%s@%d", v.ServerID, v.DeviceID, v.PointName, v.Address)
-		}
-	}
+    // Best-effort enqueue; avoid blocking indefinitely if queue is full.
+    select {
+    case s.q <- v:
+        return nil
+    default:
+        // Fallback to blocking to reduce data loss, but with a short timeout.
+        timer := time.NewTimer(2 * time.Second)
+        defer timer.Stop()
+        select {
+        case s.q <- v:
+            return nil
+        case <-timer.C:
+            return fmt.Errorf("storage queue full: dropping value %s/%s/%s@%d", v.ServerID, v.DeviceID, v.PointName, v.Address)
+        }
+    }
 }

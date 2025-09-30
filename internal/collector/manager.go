@@ -8,7 +8,9 @@ import (
     "time"
 
     dbpkg "modbus-simulator/internal/db"
+    "modbus-simulator/internal/model"
     utils "modbus-simulator/internal/utils"
+    "gorm.io/gorm"
 )
 
 // Manager coordinates running multiple device collectors concurrently.
@@ -159,68 +161,49 @@ func (m *Manager) wrapHandler() ResultHandler {
 // initDatabaseFromConfig populates servers and devices tables from the loaded config
 // when the servers table is currently empty. It is safe to call multiple times.
 func (m *Manager) initDatabaseFromConfig(db *dbpkg.DB) error {
-    // Check if servers table has any rows
-    var count int
-    if err := db.SQL.QueryRow("SELECT COUNT(*) FROM servers").Scan(&count); err != nil {
+    // If servers table already has rows, skip seeding
+    var count int64
+    if err := db.ORM.Model(&model.Server{}).Count(&count).Error; err != nil {
         return err
     }
     if count > 0 {
         return nil
     }
 
-    tx, err := db.SQL.Begin()
-    if err != nil {
-        return err
-    }
-    defer func() {
-        if err != nil {
-            _ = tx.Rollback()
-        }
-    }()
-
-    // Insert servers
-    for _, srv := range m.Cfg.Servers {
-        var pollStr string
-        if d, ok := m.Cfg.Frequency[srv.ServerID]; ok && d > 0 {
-            pollStr = d.String()
-        }
-        _, err = tx.Exec(
-            `INSERT OR IGNORE INTO servers
-            (server_id, server_name, protocol, host, port, timeout, retry_count, enabled, poll_interval)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-            srv.ServerID,
-            srv.ServerName,
-            strings.ToLower(strings.TrimSpace(srv.Protocol)),
-            srv.Connection.Host,
-            srv.Connection.Port,
-            srv.Timeout.String(),
-            srv.RetryCount,
-            srv.Enabled,
-            pollStr,
-        )
-        if err != nil {
-            return err
-        }
-        // Insert devices for this server
-        for _, dev := range srv.Devices {
-            _, err = tx.Exec(
-                `INSERT OR REPLACE INTO devices
-                (device_id, server_id, vendor, slave_id, poll_interval)
-                VALUES (?, ?, ?, ?, ?)`,
-                dev.DeviceID,
-                srv.ServerID,
-                dev.Vendor,
-                int64(dev.SlaveID),
-                dev.PollInterval.String(),
-            )
-            if err != nil {
+    return db.ORM.Transaction(func(tx *gorm.DB) error {
+        // upsert servers and devices
+        for _, srv := range m.Cfg.Servers {
+            var pollStr string
+            if d, ok := m.Cfg.Frequency[srv.ServerID]; ok && d > 0 {
+                pollStr = d.String()
+            }
+            ms := &model.Server{
+                ServerID:     srv.ServerID,
+                ServerName:   srv.ServerName,
+                Protocol:     strings.ToLower(strings.TrimSpace(srv.Protocol)),
+                Host:         srv.Connection.Host,
+                Port:         srv.Connection.Port,
+                Timeout:      srv.Timeout.String(),
+                RetryCount:   srv.RetryCount,
+                Enabled:      srv.Enabled,
+                PollInterval: pollStr,
+            }
+            if err := tx.Save(ms).Error; err != nil {
                 return err
             }
+            for _, dev := range srv.Devices {
+                md := &model.Device{
+                    DeviceID:     dev.DeviceID,
+                    ServerID:     srv.ServerID,
+                    Vendor:       dev.Vendor,
+                    SlaveID:      int(dev.SlaveID),
+                    PollInterval: dev.PollInterval.String(),
+                }
+                if err := tx.Save(md).Error; err != nil {
+                    return err
+                }
+            }
         }
-    }
-
-    if err = tx.Commit(); err != nil {
-        return err
-    }
-    return nil
+        return nil
+    })
 }
