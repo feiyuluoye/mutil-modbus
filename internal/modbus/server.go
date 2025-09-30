@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net"
 	"sync"
 )
@@ -14,6 +15,10 @@ const (
 	functionReadDiscreteInputs = 0x02
 	functionReadHoldingRegs    = 0x03
 	functionReadInputRegs      = 0x04
+	functionWriteSingleCoil    = 0x05
+	functionWriteSingleReg     = 0x06
+	functionWriteMultipleCoils = 0x0F
+	functionWriteMultipleRegs  = 0x10
 
 	exceptionIllegalFunction = 0x01
 	exceptionIllegalDataAddr = 0x02
@@ -21,9 +26,11 @@ const (
 )
 
 var (
-	errOutOfRange    = errors.New("out of range")
-	errInvalidQty    = errors.New("invalid quantity")
-	errInvalidPDULen = errors.New("invalid pdu length")
+	errOutOfRange       = errors.New("out of range")
+	errInvalidQty       = errors.New("invalid quantity")
+	errInvalidPDULen    = errors.New("invalid pdu length")
+	errInvalidValue     = errors.New("invalid value")
+	errInvalidByteCount = errors.New("invalid byte count")
 )
 
 // Server implements a minimal Modbus TCP server that supports read functions.
@@ -157,6 +164,30 @@ func (s *Server) handlePDU(pdu []byte) []byte {
 			return exceptionResponse(function, errToCode(err))
 		}
 		return append([]byte{function, byte(len(data))}, data...)
+	case functionWriteSingleCoil:
+		resp, err := s.writeSingleCoil(pdu)
+		if err != nil {
+			return exceptionResponse(function, errToCode(err))
+		}
+		return resp
+	case functionWriteSingleReg:
+		resp, err := s.writeSingleRegister(pdu)
+		if err != nil {
+			return exceptionResponse(function, errToCode(err))
+		}
+		return resp
+	case functionWriteMultipleCoils:
+		resp, err := s.writeMultipleCoils(pdu)
+		if err != nil {
+			return exceptionResponse(function, errToCode(err))
+		}
+		return resp
+	case functionWriteMultipleRegs:
+		resp, err := s.writeMultipleRegisters(pdu)
+		if err != nil {
+			return exceptionResponse(function, errToCode(err))
+		}
+		return resp
 	default:
 		return exceptionResponse(function, exceptionIllegalFunction)
 	}
@@ -214,6 +245,102 @@ func (s *Server) readRegisters(source []uint16, pdu []byte) ([]byte, error) {
 	return result, nil
 }
 
+func (s *Server) writeSingleCoil(pdu []byte) ([]byte, error) {
+	if len(pdu) != 5 {
+		return nil, errInvalidPDULen
+	}
+	address := binary.BigEndian.Uint16(pdu[1:3])
+	value := binary.BigEndian.Uint16(pdu[3:5])
+	if value != 0xFF00 && value != 0x0000 {
+		return nil, errInvalidValue
+	}
+	if int(address) >= len(s.Coils) {
+		return nil, errOutOfRange
+	}
+	s.mu.Lock()
+	s.Coils[address] = value == 0xFF00
+	s.mu.Unlock()
+	return []byte{functionWriteSingleCoil, pdu[1], pdu[2], pdu[3], pdu[4]}, nil
+}
+
+func (s *Server) writeSingleRegister(pdu []byte) ([]byte, error) {
+	if len(pdu) != 5 {
+		return nil, errInvalidPDULen
+	}
+	address := binary.BigEndian.Uint16(pdu[1:3])
+	value := binary.BigEndian.Uint16(pdu[3:5])
+	if int(address) >= len(s.HoldingRegisters) {
+		return nil, errOutOfRange
+	}
+	s.mu.Lock()
+	s.HoldingRegisters[address] = value
+	s.mu.Unlock()
+	return []byte{functionWriteSingleReg, pdu[1], pdu[2], pdu[3], pdu[4]}, nil
+}
+
+func (s *Server) writeMultipleCoils(pdu []byte) ([]byte, error) {
+	if len(pdu) < 6 {
+		return nil, errInvalidPDULen
+	}
+	start := binary.BigEndian.Uint16(pdu[1:3])
+	quantity := binary.BigEndian.Uint16(pdu[3:5])
+	if quantity == 0 || quantity > 1968 {
+		return nil, errInvalidQty
+	}
+	byteCount := int(pdu[5])
+	if expected := (int(quantity) + 7) / 8; byteCount != expected {
+		return nil, errInvalidByteCount
+	}
+	if len(pdu) != 6+byteCount {
+		return nil, errInvalidPDULen
+	}
+	end := int(start) + int(quantity)
+	if end > len(s.Coils) {
+		return nil, errOutOfRange
+	}
+
+	s.mu.Lock()
+	dataOffset := 6
+	for i := 0; i < int(quantity); i++ {
+		byteIdx := dataOffset + i/8
+		bit := (pdu[byteIdx] >> (uint(i) % 8)) & 0x01
+		s.Coils[int(start)+i] = bit == 0x01
+	}
+	s.mu.Unlock()
+	return []byte{functionWriteMultipleCoils, pdu[1], pdu[2], pdu[3], pdu[4]}, nil
+}
+
+func (s *Server) writeMultipleRegisters(pdu []byte) ([]byte, error) {
+	if len(pdu) < 6 {
+		return nil, errInvalidPDULen
+	}
+	start := binary.BigEndian.Uint16(pdu[1:3])
+	quantity := binary.BigEndian.Uint16(pdu[3:5])
+	if quantity == 0 || quantity > 123 {
+		return nil, errInvalidQty
+	}
+	byteCount := int(pdu[5])
+	if byteCount != int(quantity)*2 {
+		return nil, errInvalidByteCount
+	}
+	if len(pdu) != 6+byteCount {
+		return nil, errInvalidPDULen
+	}
+	end := int(start) + int(quantity)
+	if end > len(s.HoldingRegisters) {
+		return nil, errOutOfRange
+	}
+
+	s.mu.Lock()
+	dataOffset := 6
+	for i := 0; i < int(quantity); i++ {
+		value := binary.BigEndian.Uint16(pdu[dataOffset+i*2 : dataOffset+(i+1)*2])
+		s.HoldingRegisters[int(start)+i] = value
+	}
+	s.mu.Unlock()
+	return []byte{functionWriteMultipleRegs, pdu[1], pdu[2], pdu[3], pdu[4]}, nil
+}
+
 func exceptionResponse(function byte, code byte) []byte {
 	if function == 0 {
 		function = 0x80
@@ -230,6 +357,10 @@ func errToCode(err error) byte {
 	case errors.Is(err, errInvalidQty):
 		return exceptionIllegalDataVal
 	case errors.Is(err, errInvalidPDULen):
+		return exceptionIllegalDataVal
+	case errors.Is(err, errInvalidValue):
+		return exceptionIllegalDataVal
+	case errors.Is(err, errInvalidByteCount):
 		return exceptionIllegalDataVal
 	default:
 		return exceptionIllegalFunction
@@ -289,4 +420,52 @@ func (s *Server) SetDiscreteInput(address uint16, value bool) error {
 	defer s.mu.Unlock()
 	s.DiscreteInputs[address] = value
 	return nil
+}
+
+// SetHoldingFloat32 updates two holding registers with the IEEE754 representation of value.
+func (s *Server) SetHoldingFloat32(address uint16, value float32) error {
+	if int(address)+1 >= len(s.HoldingRegisters) {
+		return fmt.Errorf("address %d out of range", address)
+	}
+	bits := math.Float32bits(value)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.HoldingRegisters[address] = uint16(bits >> 16)
+	s.HoldingRegisters[address+1] = uint16(bits & 0xFFFF)
+	return nil
+}
+
+// HoldingFloat32 reads two holding registers and returns the decoded float32 using big-endian order.
+func (s *Server) HoldingFloat32(address uint16) (float32, error) {
+	if int(address)+1 >= len(s.HoldingRegisters) {
+		return 0, fmt.Errorf("address %d out of range", address)
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	bits := uint32(s.HoldingRegisters[address])<<16 | uint32(s.HoldingRegisters[address+1])
+	return math.Float32frombits(bits), nil
+}
+
+// SetInputFloat32 updates two input registers with the IEEE754 representation of value.
+func (s *Server) SetInputFloat32(address uint16, value float32) error {
+	if int(address)+1 >= len(s.InputRegisters) {
+		return fmt.Errorf("address %d out of range", address)
+	}
+	bits := math.Float32bits(value)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.InputRegisters[address] = uint16(bits >> 16)
+	s.InputRegisters[address+1] = uint16(bits & 0xFFFF)
+	return nil
+}
+
+// InputFloat32 reads two input registers and returns the decoded float32 using big-endian order.
+func (s *Server) InputFloat32(address uint16) (float32, error) {
+	if int(address)+1 >= len(s.InputRegisters) {
+		return 0, fmt.Errorf("address %d out of range", address)
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	bits := uint32(s.InputRegisters[address])<<16 | uint32(s.InputRegisters[address+1])
+	return math.Float32frombits(bits), nil
 }
