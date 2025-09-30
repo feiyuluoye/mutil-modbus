@@ -8,6 +8,7 @@ import (
     "time"
 
     dbpkg "modbus-simulator/internal/db"
+    utils "modbus-simulator/internal/utils"
 )
 
 // Manager coordinates running multiple device collectors concurrently.
@@ -44,15 +45,35 @@ func (m *Manager) Run(ctx context.Context) error {
                     }
                 }
                 storeHandler := store.Handle
+                // TTL cache (1h) to avoid writing unchanged values
+                vc := utils.NewValueCache(time.Hour)
                 if m.OnValue == nil {
-                    m.OnValue = storeHandler
+                    m.OnValue = func(v PointValue) error {
+                        key := v.DeviceID + "|" + v.PointName + "|" + v.Register + "|" + v.ServerID
+                        if old, ok := vc.GetValue(key); ok && old == v.Value {
+                            return nil
+                        }
+                        if err := storeHandler(v); err != nil {
+                            return err
+                        }
+                        vc.SetValue(key, v.Value)
+                        return nil
+                    }
                 } else {
                     userH := m.OnValue
                     m.OnValue = func(v PointValue) error {
+                        key := v.DeviceID + "|" + v.PointName + "|" + v.Register + "|" + v.ServerID
+                        if old, ok := vc.GetValue(key); ok && old == v.Value {
+                            return nil
+                        }
                         if err := userH(v); err != nil {
                             log.Printf("custom handler error: %v", err)
                         }
-                        return storeHandler(v)
+                        if err := storeHandler(v); err != nil {
+                            return err
+                        }
+                        vc.SetValue(key, v.Value)
+                        return nil
                     }
                 }
             }

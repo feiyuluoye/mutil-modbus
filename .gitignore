@@ -39,3 +39,4 @@ coverage.out
 .env
 .env.*.local
 store/*
+data.sqlite

@@ -9,6 +9,7 @@ system:
     file_type: db
     db_path: "./data.sqlite"
     max_workers: 5
+    result_analysis_count: 5
     max_queue_size: 500
 
 # 采集频率配置，按照服务器设备ID配置
