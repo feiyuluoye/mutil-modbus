@@ -30,11 +30,13 @@ type SystemConfig struct {
 		MaxQueueSize int  `yaml:"max_queue_size"`
 	} `yaml:"processing"`
 	Storage struct {
-		Enabled      bool   `yaml:"enabled"`
-		FileType     string `yaml:"file_type"`
-		DBPath       string `yaml:"db_path"`
-		MaxWorkers   int    `yaml:"max_workers"`
-		MaxQueueSize int    `yaml:"max_queue_size"`
+		Enabled             bool          `yaml:"enabled"`
+		FileType            string        `yaml:"file_type"`
+		DBPath              string        `yaml:"db_path"`
+		CacheTTL            time.Duration `yaml:"cache_ttl"`
+		ResultAnalysisCount int           `yaml:"result_analysis_count"`
+		MaxWorkers          int           `yaml:"max_workers"`
+		MaxQueueSize        int           `yaml:"max_queue_size"`
 	} `yaml:"storage"`
 }
 
@@ -103,6 +105,12 @@ func LoadYAML(path string) (RootConfig, error) {
 	}
 	if cfg.System.Storage.MaxQueueSize < 0 {
 		cfg.System.Storage.MaxQueueSize = 0
+	}
+	if cfg.System.Storage.CacheTTL <= 0 {
+		cfg.System.Storage.CacheTTL = time.Hour
+	}
+	if cfg.System.Storage.ResultAnalysisCount <= 0 {
+		cfg.System.Storage.ResultAnalysisCount = 10
 	}
 	cfg.System.Storage.FileType = strings.ToLower(strings.TrimSpace(cfg.System.Storage.FileType))
 	if cfg.System.Storage.FileType == "" {

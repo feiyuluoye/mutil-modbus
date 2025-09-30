@@ -24,6 +24,8 @@ type PointValue struct {
 	PointName string
 	Address   uint16
 	Register  string // holding|input|coil|discrete
+	DataType  string
+	ByteOrder string
 	Unit      string
 	Raw       any
 	Value     float64
@@ -192,6 +194,8 @@ func (c *Collector) readPoint(client mb.Client, p Point) (PointValue, error) {
 		PointName: p.Name,
 		Address:   p.Address,
 		Register:  rt,
+		DataType:  dt,
+		ByteOrder: bo,
 		Unit:      p.Unit,
 		Timestamp: time.Now(),
 	}
@@ -225,6 +229,9 @@ func (c *Collector) readPoint(client mb.Client, p Point) (PointValue, error) {
 		b := len(data) > 0 && (data[0]&0x01 == 0x01)
 		pv.Raw = b
 		pv.Value = boolToFloat(b)
+		if pv.DataType == "" {
+			pv.DataType = "bool"
+		}
 		return pv, nil
 	case "discrete":
 		data, err := client.ReadDiscreteInputs(p.Address, 1)
@@ -234,6 +241,9 @@ func (c *Collector) readPoint(client mb.Client, p Point) (PointValue, error) {
 		b := len(data) > 0 && (data[0]&0x01 == 0x01)
 		pv.Raw = b
 		pv.Value = boolToFloat(b)
+		if pv.DataType == "" {
+			pv.DataType = "bool"
+		}
 		return pv, nil
 	default:
 		return pv, fmt.Errorf("unsupported register type: %s", p.RegisterType)
@@ -242,6 +252,10 @@ func (c *Collector) readPoint(client mb.Client, p Point) (PointValue, error) {
 
 func decodeRegisterData(pv PointValue, data []byte, dt, bo string, p Point) (PointValue, error) {
 	applyScale := func(v float64) float64 { return v*p.Scale + p.Offset }
+	if pv.DataType == "" {
+		pv.DataType = dt
+	}
+	pv.ByteOrder = bo
 
 	switch dt {
 	case "uint16":

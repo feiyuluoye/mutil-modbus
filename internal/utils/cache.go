@@ -1,6 +1,7 @@
 package utils
 
 import (
+    "math"
 	"sync"
 	"time"
 )
@@ -11,6 +12,21 @@ type ValueCache struct {
 	mu   sync.Mutex
 	ttl  time.Duration
 	data map[string]entry
+}
+
+// FloatsEqual compares two float64 numbers with a small relative epsilon to tolerate FP error.
+// If either number is zero, it falls back to an absolute epsilon.
+func FloatsEqual(a, b float64) bool {
+    if a == b {
+        return true
+    }
+    da := math.Abs(a)
+    db := math.Abs(b)
+    diff := math.Abs(a - b)
+    if da == 0 || db == 0 {
+        return diff < 1e-9
+    }
+    return diff/math.Max(da, db) < 1e-9
 }
 
 type entry struct {

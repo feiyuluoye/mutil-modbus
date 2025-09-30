@@ -215,6 +215,8 @@ func (s *Storage) writeJSONL(v PointValue) error {
 		"point_name": v.PointName,
 		"address":    v.Address,
 		"register":   v.Register,
+		"data_type": v.DataType,
+		"byte_order": v.ByteOrder,
 		"unit":       v.Unit,
 		"raw":        v.Raw,
 		"value":      v.Value,
@@ -245,6 +247,8 @@ func (s *Storage) writeCSV(v PointValue) error {
 		v.PointName,
 		fmt.Sprintf("%d", v.Address),
 		v.Register,
+		v.DataType,
+		v.ByteOrder,
 		v.Unit,
 		fmt.Sprintf("%g", v.Value),
 	}
@@ -270,8 +274,8 @@ func (s *Storage) writeDB(v PointValue) error {
 		v.PointName,
 		int64(v.Address),
 		v.Register,
-		"", // data_type not tracked in PointValue
-		"", // byte_order not tracked in PointValue
+		v.DataType,
+		v.ByteOrder,
 		v.Unit,
 		v.Value,
 		v.Timestamp,

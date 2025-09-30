@@ -8,6 +8,7 @@ system:
     enabled: true
     file_type: db
     db_path: "./data.sqlite"
+    cache_ttl: "1h"
     max_workers: 5
     result_analysis_count: 5
     max_queue_size: 500
