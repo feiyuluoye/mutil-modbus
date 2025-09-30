@@ -140,6 +140,7 @@ type Stats struct {
 
 // PointLatest represents the latest record for each unique point name across all devices.
 type PointLatest struct {
+    ServerID     string    `json:"server_id"`
     DeviceID     string    `json:"device_id"`
     Name         string    `json:"name"`
     Address      int       `json:"address"`
@@ -153,15 +154,17 @@ type PointLatest struct {
 
 // LatestPoints returns, for each unique point name, the latest row by timestamp.
 func (d *DB) LatestPoints(ctx context.Context) ([]PointLatest, error) {
-    // subquery: latest timestamp per unique name
-    sub := d.ORM.Model(&model.PointValue{}).
-        Select("name, MAX(timestamp) as ts").
-        Group("name")
+    // subquery: latest timestamp per unique (server_id, device_id, name)
+    sub := d.ORM.Table("point_values as p").
+        Joins("JOIN devices d ON d.device_id = p.device_id").
+        Select("d.server_id as server_id, p.device_id as device_id, p.name as name, MAX(p.timestamp) as ts").
+        Group("d.server_id, p.device_id, p.name")
     var out []PointLatest
     err := d.ORM.WithContext(ctx).
         Table("point_values as p").
-        Select("p.device_id, p.name, p.address, p.register_type, p.data_type, p.byte_order, p.unit, COALESCE(p.value, 0.0) as value, p.timestamp").
-        Joins("JOIN (?) as l ON l.name = p.name AND l.ts = p.timestamp", sub).
+        Select("d.server_id, p.device_id, p.name, p.address, p.register_type, p.data_type, p.byte_order, p.unit, COALESCE(p.value, 0.0) as value, p.timestamp").
+        Joins("JOIN (?) as l ON l.server_id = d.server_id AND l.device_id = p.device_id AND l.name = p.name AND l.ts = p.timestamp", sub).
+        Joins("JOIN devices d ON d.device_id = p.device_id").
         Order("p.name").
         Scan(&out).Error
     if err != nil {
