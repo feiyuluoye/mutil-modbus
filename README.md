@@ -82,6 +82,46 @@ go run ./cmd/export --config config/config.yaml \
 
 `cmd/export` 会自启服务器，等待指定时长后导出当前快照并退出。
 
+## 数据库与最新点位查询（ORM）
+
+项目已迁移为使用 GORM（gorm.io/gorm）管理 SQLite 数据库，模型定义见 `internal/model/modbus.go`，ORM 辅助见 `internal/db/orm.go`。
+
+- 连接与迁移：`db.Open(path)` 会自动创建并迁移表。
+- 采集入库：采集器通过 `DB.SavePointValue()` 写入 `point_values`。
+
+### 最新点位查询（去重规则变更）
+
+`DB.LatestPoints(ctx)` 返回“最新点位值”列表，去重规则为复合键：`server_id + device_id + name`。即每个服务器-设备-点位名组合仅保留一条最新记录。
+
+- 返回结构（`PointLatest`）：
+  - `server_id`, `device_id`, `name`, `address`, `register_type`, `data_type`, `byte_order`, `unit`, `value`, `timestamp`
+
+### 运行示例（examples/latest）
+
+新增示例 `examples/latest` 用于查询并输出最新点位值（JSON）：
+
+```bash
+# 全量最新点位
+go run ./examples/latest -db ./data.sqlite -pretty=false
+
+# 仅过滤某个 server
+go run ./examples/latest -db ./data.sqlite -server plc_server_1
+
+# 仅过滤某个 device
+go run ./examples/latest -db ./data.sqlite -device device_001
+
+# 同时按 server 与 device 过滤
+go run ./examples/latest -db ./data.sqlite -server plc_server_1 -device device_001
+```
+
+可选参数：
+
+- `-db`: SQLite 文件路径（默认 `./data.sqlite`）
+- `-pretty`: 是否美化 JSON（默认 `true`）
+- `-timeout`: 查询超时（默认 `5s`）
+- `-server`: 按 `server_id` 过滤（可选）
+- `-device`: 按 `device_id` 过滤（可选）
+
 ## 配置说明
 
 ### TOML (`config.toml`, 供 `cmd/server` 使用)
