@@ -1,0 +1,178 @@
+# Topway water treatment configuration derived from dashboard CSV columns
+system:
+  processing:
+    enabled: true
+    max_workers: 10
+    max_queue_size: 1000
+  storage:
+    enabled: true
+    file_type: db
+    db_path: "./topway-data.sqlite"
+    cache_ttl: "1h"
+    max_workers: 5
+    result_analysis_count: 10
+    max_queue_size: 500
+
+frequency:
+  topway_server: "5s"
+
+servers:
+  - server_id: "topway_server"
+    server_name: "Topway Water Treatment"
+    protocol: "modbus-tcp"
+    connection:
+      host: "0.0.0.0"
+      port: 1502
+    timeout: "10s"
+    retry_count: 3
+    enabled: true
+    type: "points"
+    devices:
+      - device_id: "topway_dashboard"
+        vendor: "topway"
+        slave_id: 1
+        poll_interval: "5s"
+        points:
+          - name: "pretreatment_concentration_mg_l"
+            address: 0
+            register_type: "holding"
+            data_type: "uint16"
+            byte_order: "ABCD"
+            scale: 100
+            offset: 0
+            unit: "mg/L"
+
+          - name: "pretreatment_total_chlorine_mg_l"
+            address: 1
+            register_type: "holding"
+            data_type: "uint16"
+            byte_order: "ABCD"
+            scale: 100
+            offset: 0
+            unit: "mg/L"
+
+          - name: "pretreatment_residual_chlorine_mg_l"
+            address: 2
+            register_type: "holding"
+            data_type: "uint16"
+            byte_order: "ABCD"
+            scale: 100
+            offset: 0
+            unit: "mg/L"
+
+          - name: "eyedrop_concentration_mg_l"
+            address: 3
+            register_type: "holding"
+            data_type: "uint16"
+            byte_order: "ABCD"
+            scale: 100
+            offset: 0
+            unit: "mg/L"
+
+          - name: "eyedrop_total_chlorine_mg_l"
+            address: 4
+            register_type: "holding"
+            data_type: "uint16"
+            byte_order: "ABCD"
+            scale: 100
+            offset: 0
+            unit: "mg/L"
+
+          - name: "eyedrop_residual_chlorine_mg_l"
+            address: 5
+            register_type: "holding"
+            data_type: "uint16"
+            byte_order: "ABCD"
+            scale: 100
+            offset: 0
+            unit: "mg/L"
+
+          - name: "water_treatment_turbidity_ntu"
+            address: 6
+            register_type: "holding"
+            data_type: "uint16"
+            byte_order: "ABCD"
+            scale: 100
+            offset: 0
+            unit: "NTU"
+
+          - name: "water_treatment_residual_chlorine_mg_l"
+            address: 7
+            register_type: "holding"
+            data_type: "uint16"
+            byte_order: "ABCD"
+            scale: 100
+            offset: 0
+            unit: "mg/L"
+
+          - name: "water_treatment_temperature_c"
+            address: 8
+            register_type: "holding"
+            data_type: "uint16"
+            byte_order: "ABCD"
+            scale: 10
+            offset: 0
+            unit: "°C"
+
+          - name: "supply_tank_level_m"
+            address: 9
+            register_type: "holding"
+            data_type: "uint16"
+            byte_order: "ABCD"
+            scale: 100
+            offset: 0
+            unit: "m"
+
+          - name: "supply_tank_temperature_c"
+            address: 10
+            register_type: "holding"
+            data_type: "uint16"
+            byte_order: "ABCD"
+            scale: 10
+            offset: 0
+            unit: "°C"
+
+          - name: "supply_tank_ph"
+            address: 11
+            register_type: "holding"
+            data_type: "uint16"
+            byte_order: "ABCD"
+            scale: 100
+            offset: 0
+            unit: "pH"
+
+          - name: "eyedrop_ec_us_cm"
+            address: 12
+            register_type: "holding"
+            data_type: "uint16"
+            byte_order: "ABCD"
+            scale: 1
+            offset: 0
+            unit: "µS/cm"
+
+          - name: "eyedrop_temperature_c"
+            address: 13
+            register_type: "holding"
+            data_type: "uint16"
+            byte_order: "ABCD"
+            scale: 10
+            offset: 0
+            unit: "°C"
+
+          - name: "water_treatment_ec_us_cm"
+            address: 14
+            register_type: "holding"
+            data_type: "uint16"
+            byte_order: "ABCD"
+            scale: 1
+            offset: 0
+            unit: "µS/cm"
+
+          - name: "water_treatment_ph"
+            address: 15
+            register_type: "holding"
+            data_type: "uint16"
+            byte_order: "ABCD"
+            scale: 100
+            offset: 0
+            unit: "pH"

@@ -17,19 +17,21 @@ import (
 // Value holds the scaled/offset value as float64 for uniformity.
 // For boolean points, Value will be 0 or 1.
 type PointValue struct {
-	ServerID  string
-	DeviceID  string
+	ServerID   string
+	DeviceID   string
 	Connection string
-	SlaveID   uint8
-	PointName string
-	Address   uint16
-	Register  string // holding|input|coil|discrete
-	DataType  string
-	ByteOrder string
-	Unit      string
-	Raw       any
-	Value     float64
-	Timestamp time.Time
+	SlaveID    uint8
+	PointName  string
+	Address    uint16
+	Register   string // holding|input|coil|discrete
+	DataType   string
+	ByteOrder  string
+	Unit       string
+	Raw        any
+	Value      float64
+	Scale      float64
+	Offset     float64
+	Timestamp  time.Time
 }
 
 // ResultHandler is a callback to process collected values.
@@ -187,17 +189,17 @@ func (c *Collector) readPoint(client mb.Client, p Point) (PointValue, error) {
 	bo := strings.ToUpper(p.ByteOrder)
 
 	pv := PointValue{
-		ServerID:  c.Server.ServerID,
-		DeviceID:  c.Device.DeviceID,
+		ServerID:   c.Server.ServerID,
+		DeviceID:   c.Device.DeviceID,
 		Connection: c.connAddr,
-		SlaveID:  c.Device.SlaveID,
-		PointName: p.Name,
-		Address:   p.Address,
-		Register:  rt,
-		DataType:  dt,
-		ByteOrder: bo,
-		Unit:      p.Unit,
-		Timestamp: time.Now(),
+		SlaveID:    c.Device.SlaveID,
+		PointName:  p.Name,
+		Address:    p.Address,
+		Register:   rt,
+		DataType:   dt,
+		ByteOrder:  bo,
+		Unit:       p.Unit,
+		Timestamp:  time.Now(),
 	}
 
 	switch rt {
@@ -251,7 +253,14 @@ func (c *Collector) readPoint(client mb.Client, p Point) (PointValue, error) {
 }
 
 func decodeRegisterData(pv PointValue, data []byte, dt, bo string, p Point) (PointValue, error) {
-	applyScale := func(v float64) float64 { return v*p.Scale + p.Offset }
+	scale := p.Scale
+	if scale == 0 {
+		scale = 1
+	}
+	offset := p.Offset
+	pv.Scale = scale
+	pv.Offset = offset
+	applyCalibration := func(raw float64) float64 { return (raw - offset) / scale }
 	if pv.DataType == "" {
 		pv.DataType = dt
 	}
@@ -264,7 +273,7 @@ func decodeRegisterData(pv PointValue, data []byte, dt, bo string, p Point) (Poi
 		}
 		u := binary.BigEndian.Uint16(data[:2])
 		pv.Raw = u
-		pv.Value = applyScale(float64(u))
+		pv.Value = applyCalibration(float64(u))
 		return pv, nil
 	case "int16":
 		if len(data) < 2 {
@@ -273,7 +282,7 @@ func decodeRegisterData(pv PointValue, data []byte, dt, bo string, p Point) (Poi
 		u := binary.BigEndian.Uint16(data[:2])
 		i := int16(u)
 		pv.Raw = i
-		pv.Value = applyScale(float64(i))
+		pv.Value = applyCalibration(float64(i))
 		return pv, nil
 	case "float32":
 		if len(data) < 4 {
@@ -283,7 +292,7 @@ func decodeRegisterData(pv PointValue, data []byte, dt, bo string, p Point) (Poi
 		u := binary.BigEndian.Uint32(b)
 		f := math.Float32frombits(u)
 		pv.Raw = f
-		pv.Value = applyScale(float64(f))
+		pv.Value = applyCalibration(float64(f))
 		return pv, nil
 	case "uint32":
 		if len(data) < 4 {
@@ -292,7 +301,7 @@ func decodeRegisterData(pv PointValue, data []byte, dt, bo string, p Point) (Poi
 		b := reorder32(data[:4], bo)
 		u := binary.BigEndian.Uint32(b)
 		pv.Raw = u
-		pv.Value = applyScale(float64(u))
+		pv.Value = applyCalibration(float64(u))
 		return pv, nil
 	case "int32":
 		if len(data) < 4 {
@@ -302,7 +311,7 @@ func decodeRegisterData(pv PointValue, data []byte, dt, bo string, p Point) (Poi
 		u := binary.BigEndian.Uint32(b)
 		i := int32(u)
 		pv.Raw = i
-		pv.Value = applyScale(float64(i))
+		pv.Value = applyCalibration(float64(i))
 		return pv, nil
 	default:
 		return pv, fmt.Errorf("unsupported data type: %s", dt)

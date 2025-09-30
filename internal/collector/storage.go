@@ -217,10 +217,12 @@ func (s *Storage) writeJSONL(v PointValue) error {
 		"point_name": v.PointName,
 		"address":    v.Address,
 		"register":   v.Register,
-		"data_type": v.DataType,
+		"data_type":  v.DataType,
 		"byte_order": v.ByteOrder,
 		"unit":       v.Unit,
 		"raw":        v.Raw,
+		"scale":      v.Scale,
+		"offset":     v.Offset,
 		"value":      v.Value,
 	}
 	b, err := json.Marshal(obj)
@@ -264,46 +266,49 @@ func (s *Storage) writeCSV(v PointValue) error {
 // It maps to the point_values table defined in internal/db/sqlite.go migrate().
 // Some columns in the schema (data_type, byte_order) are not available at runtime here;
 // we store empty strings for them, and rely on defaults for scale/offset.
+
 func (s *Storage) writeDB(v PointValue) error {
-    if s.db == nil || s.db.ORM == nil {
-        return nil
-    }
-    pv := &model.PointValue{
-        DeviceID:     v.DeviceID,
-        Name:         v.PointName,
-        Address:      int(v.Address),
-        RegisterType: v.Register,
-        DataType:     v.DataType,
-        ByteOrder:    v.ByteOrder,
-        Unit:         v.Unit,
-        Value:        v.Value,
-        Timestamp:    v.Timestamp,
-    }
-    return s.db.SavePointValue(s.ctxOrBackground(), pv)
+	if s.db == nil || s.db.ORM == nil {
+		return nil
+	}
+	pv := &model.PointValue{
+		DeviceID:     v.DeviceID,
+		Name:         v.PointName,
+		Address:      int(v.Address),
+		RegisterType: v.Register,
+		DataType:     v.DataType,
+		ByteOrder:    v.ByteOrder,
+		Scale:        v.Scale,
+		Offset:       v.Offset,
+		Unit:         v.Unit,
+		Value:        v.Value,
+		Timestamp:    v.Timestamp,
+	}
+	return s.db.SavePointValue(s.ctxOrBackground(), pv)
 }
 
 // ctxOrBackground provides a context for DB operations; if none, uses a short timeout.
 func (s *Storage) ctxOrBackground() context.Context {
-    // use a small timeout to avoid blocking too long
-    ctx, _ := context.WithTimeout(context.Background(), 3*time.Second)
-    return ctx
+	// use a small timeout to avoid blocking too long
+	ctx, _ := context.WithTimeout(context.Background(), 3*time.Second)
+	return ctx
 }
 
 // Handle implements ResultHandler, enqueueing values for background writers.
 func (s *Storage) Handle(v PointValue) error {
-    // Best-effort enqueue; avoid blocking indefinitely if queue is full.
-    select {
-    case s.q <- v:
-        return nil
-    default:
-        // Fallback to blocking to reduce data loss, but with a short timeout.
-        timer := time.NewTimer(2 * time.Second)
-        defer timer.Stop()
-        select {
-        case s.q <- v:
-            return nil
-        case <-timer.C:
-            return fmt.Errorf("storage queue full: dropping value %s/%s/%s@%d", v.ServerID, v.DeviceID, v.PointName, v.Address)
-        }
-    }
+	// Best-effort enqueue; avoid blocking indefinitely if queue is full.
+	select {
+	case s.q <- v:
+		return nil
+	default:
+		// Fallback to blocking to reduce data loss, but with a short timeout.
+		timer := time.NewTimer(2 * time.Second)
+		defer timer.Stop()
+		select {
+		case s.q <- v:
+			return nil
+		case <-timer.C:
+			return fmt.Errorf("storage queue full: dropping value %s/%s/%s@%d", v.ServerID, v.DeviceID, v.PointName, v.Address)
+		}
+	}
 }
