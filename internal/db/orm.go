@@ -1,60 +1,60 @@
 package db
 
 import (
-	"context"
+    "context"
 
-	"gorm.io/driver/sqlite"
-	"gorm.io/gorm"
-	"gorm.io/gorm/logger"
+    "gorm.io/driver/sqlite"
+    "gorm.io/gorm"
+    "gorm.io/gorm/logger"
 
-	"modbus-simulator/internal/model"
+    "modbus-simulator/internal/model"
 )
 
 // openORM opens a GORM SQLite connection with sane defaults.
 func openORM(path string) (*gorm.DB, error) {
-	return gorm.Open(sqlite.Open(path), &gorm.Config{
-		Logger: logger.Default.LogMode(logger.Warn),
-	})
+    return gorm.Open(sqlite.Open(path), &gorm.Config{
+        Logger: logger.Default.LogMode(logger.Warn),
+    })
 }
 
 // migrateORM ensures the schema for all models exists.
 func migrateORM(db *gorm.DB) error {
-	return db.AutoMigrate(&model.Server{}, &model.Device{}, &model.PointValue{})
+    return db.AutoMigrate(&model.Server{}, &model.Device{}, &model.PointValue{}, &model.LatestDataValue{})
 }
 
 // closeORM closes the underlying SQL DB associated with the GORM connection.
 func closeORM(db *gorm.DB) error {
-	sqlDB, err := db.DB()
-	if err != nil {
-		return err
-	}
-	return sqlDB.Close()
+    sqlDB, err := db.DB()
+    if err != nil {
+        return err
+    }
+    return sqlDB.Close()
 }
 
 // insertPointValue persists a new point value row using the provided context.
 func insertPointValue(ctx context.Context, db *gorm.DB, pv *model.PointValue) error {
-	return db.WithContext(ctx).Create(pv).Error
+    return db.WithContext(ctx).Create(pv).Error
 }
 
 // InsertPointValuesBatch inserts multiple point values efficiently.
 func InsertPointValuesBatch(ctx context.Context, db *gorm.DB, pvs []model.PointValue, batchSize int) error {
-	if batchSize <= 0 {
-		batchSize = 1000
-	}
-	if len(pvs) == 0 {
-		return nil
-	}
-	return db.WithContext(ctx).CreateInBatches(pvs, batchSize).Error
+    if batchSize <= 0 {
+        batchSize = 1000
+    }
+    if len(pvs) == 0 {
+        return nil
+    }
+    return db.WithContext(ctx).CreateInBatches(pvs, batchSize).Error
 }
 
 // upsertServer inserts or updates a server definition.
-func UpsertServer(ctx context.Context, db *gorm.DB, s *model.Server) error {
-	return db.WithContext(ctx).Save(s).Error
+func upsertServer(ctx context.Context, db *gorm.DB, s *model.Server) error {
+    return db.WithContext(ctx).Save(s).Error
 }
 
 // CreateServer creates a new server.
 func CreateServer(ctx context.Context, db *gorm.DB, s *model.Server) error {
-	return db.WithContext(ctx).Create(s).Error
+    return db.WithContext(ctx).Create(s).Error
 }
 
 // GetServer retrieves a server by server_id.

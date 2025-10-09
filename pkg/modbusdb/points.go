@@ -7,13 +7,13 @@ import (
 	dbpkg "modbus-simulator/internal/db"
 	"modbus-simulator/internal/model"
 )
-
 // --------------------
 // Point DTOs
 // --------------------
 
 type PointValue struct {
 	ID           uint
+	ServerID     string
 	DeviceID     string
 	Name         string
 	Address      int
@@ -30,59 +30,57 @@ type PointValue struct {
 type PointLatest struct {
 	ServerID     string    `json:"server_id"`
 	DeviceID     string    `json:"device_id"`
-	Name         string    `json:"name"`
-	Address      int       `json:"address"`
-	RegisterType string    `json:"register_type"`
-	DataType     string    `json:"data_type"`
-	ByteOrder    string    `json:"byte_order"`
-	Unit         string    `json:"unit"`
-	Value        float64   `json:"value"`
-	Timestamp    time.Time `json:"timestamp"`
+    Name         string    `json:"name"`
+    Address      int       `json:"address"`
+    RegisterType string    `json:"register_type"`
+    DataType     string    `json:"data_type"`
+    ByteOrder    string    `json:"byte_order"`
+    Unit         string    `json:"unit"`
+    Value        float64   `json:"value"`
+    Timestamp    time.Time `json:"timestamp"`
 }
-
-// --------------------
-// Converters
-// --------------------
 
 func fromModelPointLatest(pl dbpkg.PointLatest) PointLatest {
-	return PointLatest{
-		ServerID:     pl.ServerID,
-		DeviceID:     pl.DeviceID,
-		Name:         pl.Name,
-		Address:      pl.Address,
-		RegisterType: pl.RegisterType,
-		DataType:     pl.DataType,
-		ByteOrder:    pl.ByteOrder,
-		Unit:         pl.Unit,
-		Value:        pl.Value,
-		Timestamp:    pl.Timestamp,
-	}
+    return PointLatest{
+        ServerID:     pl.ServerID,
+        DeviceID:     pl.DeviceID,
+        Name:         pl.Name,
+        Address:      pl.Address,
+        RegisterType: pl.RegisterType,
+        DataType:     pl.DataType,
+        ByteOrder:    pl.ByteOrder,
+        Unit:         pl.Unit,
+        Value:        pl.Value,
+        Timestamp:    pl.Timestamp,
+    }
 }
 
-func fromModelPointValue(p model.PointValue) PointValue {
-	return PointValue{
-		ID:           p.ID,
-		DeviceID:     p.DeviceID,
-		Name:         p.Name,
-		Address:      p.Address,
-		RegisterType: p.RegisterType,
-		DataType:     p.DataType,
-		ByteOrder:    p.ByteOrder,
-		Scale:        p.Scale,
-		Offset:       p.Offset,
-		Unit:         p.Unit,
-		Value:        p.Value,
-		Timestamp:    p.Timestamp,
-	}
+// fromModelPointValue converts a DB model PointValue to the public DTO PointValue
+func fromModelPointValue(pv model.PointValue) PointValue {
+    return PointValue{
+        ID:           pv.ID,
+        ServerID:     pv.ServerID,
+        DeviceID:     pv.DeviceID,
+        Name:         pv.Name,
+        Address:      pv.Address,
+        RegisterType: pv.RegisterType,
+        DataType:     pv.DataType,
+        ByteOrder:    pv.ByteOrder,
+        Scale:        pv.Scale,
+        Offset:       pv.Offset,
+        Unit:         pv.Unit,
+        Value:        pv.Value,
+        Timestamp:    pv.Timestamp,
+    }
 }
 
 // --------------------
 // Point operations
 // --------------------
-
 func (c *Client) SavePointValue(ctx context.Context, p *PointValue) error {
 	mp := model.PointValue{
 		ID:           p.ID,
+		ServerID:     p.ServerID,
 		DeviceID:     p.DeviceID,
 		Name:         p.Name,
 		Address:      p.Address,
@@ -103,6 +101,7 @@ func (c *Client) SavePointValuesBatch(ctx context.Context, ps []PointValue, batc
 	for _, p := range ps {
 		arr = append(arr, model.PointValue{
 			ID:           p.ID,
+			ServerID:     p.ServerID,
 			DeviceID:     p.DeviceID,
 			Name:         p.Name,
 			Address:      p.Address,

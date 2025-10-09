@@ -37,20 +37,24 @@ type SystemConfig struct {
 		ResultAnalysisCount int           `yaml:"result_analysis_count"`
 		MaxWorkers          int           `yaml:"max_workers"`
 		MaxQueueSize        int           `yaml:"max_queue_size"`
+		LatestSnapshot      struct {
+			Enabled  bool          `yaml:"enabled"`
+			Interval time.Duration `yaml:"interval"`
+		} `yaml:"latest_snapshot"`
 	} `yaml:"storage"`
 }
 
 type ServerConfig struct {
-	ServerID   string        `yaml:"server_id"`
-	ServerName string        `yaml:"server_name"`
-	Protocol   string        `yaml:"protocol"` // modbus-tcp | modbus-rtu
-	Connection Connection    `yaml:"connection"`
-	Timeout    time.Duration `yaml:"timeout"`
-	RetryCount int           `yaml:"retry_count"`
-	Enabled    bool          `yaml:"enabled"`
-	DevicesType string       `yaml:"type"`
-	DevicesFile string       `yaml:"devices_file"`
-	Devices    []Device      `yaml:"devices"`
+	ServerID    string        `yaml:"server_id"`
+	ServerName  string        `yaml:"server_name"`
+	Protocol    string        `yaml:"protocol"` // modbus-tcp | modbus-rtu
+	Connection  Connection    `yaml:"connection"`
+	Timeout     time.Duration `yaml:"timeout"`
+	RetryCount  int           `yaml:"retry_count"`
+	Enabled     bool          `yaml:"enabled"`
+	DevicesType string        `yaml:"type"`
+	DevicesFile string        `yaml:"devices_file"`
+	Devices     []Device      `yaml:"devices"`
 }
 
 type Connection struct {
@@ -116,6 +120,10 @@ func LoadYAML(path string) (RootConfig, error) {
 	if cfg.System.Storage.FileType == "" {
 		cfg.System.Storage.FileType = "csv"
 	}
+	// Defaults for latest snapshot job
+	if cfg.System.Storage.LatestSnapshot.Interval <= 0 {
+		cfg.System.Storage.LatestSnapshot.Interval = 30 * time.Second
+	}
 
 	cfgDir := filepath.Dir(path)
 	for i := range cfg.Servers {
@@ -145,9 +153,6 @@ func LoadYAML(path string) (RootConfig, error) {
 		default:
 			return RootConfig{}, fmt.Errorf("server %s: unsupported devices type %q", srv.ServerID, srv.DevicesType)
 		}
-	}
-	if len(cfg.Servers) == 0 {
-		return RootConfig{}, fmt.Errorf("no servers configured")
 	}
 	return cfg, nil
 }
@@ -286,10 +291,6 @@ func loadDevicesFromCSV(path string) ([]Device, error) {
 		})
 	}
 
-	if len(deviceMap) == 0 {
-		return nil, fmt.Errorf("devices csv %s: no device rows", path)
-	}
-
 	devices := make([]Device, 0, len(order))
 	for _, id := range order {
 		dev := deviceMap[id]
@@ -299,4 +300,5 @@ func loadDevicesFromCSV(path string) ([]Device, error) {
 		devices = append(devices, *dev)
 	}
 	return devices, nil
+
 }

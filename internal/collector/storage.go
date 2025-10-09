@@ -268,30 +268,26 @@ func (s *Storage) writeCSV(v PointValue) error {
 // we store empty strings for them, and rely on defaults for scale/offset.
 
 func (s *Storage) writeDB(v PointValue) error {
-	if s.db == nil || s.db.ORM == nil {
-		return nil
-	}
-	pv := &model.PointValue{
-		DeviceID:     v.DeviceID,
-		Name:         v.PointName,
-		Address:      int(v.Address),
-		RegisterType: v.Register,
-		DataType:     v.DataType,
-		ByteOrder:    v.ByteOrder,
-		Scale:        v.Scale,
-		Offset:       v.Offset,
-		Unit:         v.Unit,
-		Value:        v.Value,
-		Timestamp:    v.Timestamp,
-	}
-	return s.db.SavePointValue(s.ctxOrBackground(), pv)
-}
-
-// ctxOrBackground provides a context for DB operations; if none, uses a short timeout.
-func (s *Storage) ctxOrBackground() context.Context {
-	// use a small timeout to avoid blocking too long
-	ctx, _ := context.WithTimeout(context.Background(), 3*time.Second)
-	return ctx
+    if s.db == nil || s.db.ORM == nil {
+        return nil
+    }
+    pv := &model.PointValue{
+        ServerID:     v.ServerID,
+        DeviceID:     v.DeviceID,
+        Name:         v.PointName,
+        Address:      int(v.Address),
+        RegisterType: v.Register,
+        DataType:     v.DataType,
+        ByteOrder:    v.ByteOrder,
+        Scale:        v.Scale,
+        Offset:       v.Offset,
+        Unit:         v.Unit,
+        Value:        v.Value,
+        Timestamp:    v.Timestamp,
+    }
+    ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+    defer cancel()
+    return s.db.SavePointValue(ctx, pv)
 }
 
 // Handle implements ResultHandler, enqueueing values for background writers.
