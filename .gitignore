@@ -40,3 +40,6 @@ coverage.out
 .env.*.local
 store/*
 data.sqlite
+data.sqilite
+# Miscellaneous
+*.lock

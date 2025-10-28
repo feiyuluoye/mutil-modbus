@@ -2,7 +2,7 @@ csv_file = "data/topway_dashboard.csv"
 update_interval = "5s"
 
 [server]
-listen_address = ":1502"
+listen_address = ":1503"
 
 [[registers]]
 type = "holding"

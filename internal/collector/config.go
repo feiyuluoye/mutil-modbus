@@ -54,6 +54,7 @@ type ServerConfig struct {
 	Enabled     bool          `yaml:"enabled"`
 	DevicesType string        `yaml:"type"`
 	DevicesFile string        `yaml:"devices_file"`
+	CSVFile     string        `yaml:"csv_file"` // CSV file for simulation data
 	Devices     []Device      `yaml:"devices"`
 }
 

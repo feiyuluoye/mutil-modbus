@@ -1,60 +1,60 @@
 package db
 
 import (
-    "context"
+	"context"
 
-    "gorm.io/driver/sqlite"
-    "gorm.io/gorm"
-    "gorm.io/gorm/logger"
+	"gorm.io/driver/sqlite"
+	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
 
-    "modbus-simulator/internal/model"
+	"modbus-simulator/internal/model"
 )
 
 // openORM opens a GORM SQLite connection with sane defaults.
 func openORM(path string) (*gorm.DB, error) {
-    return gorm.Open(sqlite.Open(path), &gorm.Config{
-        Logger: logger.Default.LogMode(logger.Warn),
-    })
+	return gorm.Open(sqlite.Open(path), &gorm.Config{
+		Logger: logger.Default.LogMode(logger.Warn),
+	})
 }
 
 // migrateORM ensures the schema for all models exists.
 func migrateORM(db *gorm.DB) error {
-    return db.AutoMigrate(&model.Server{}, &model.Device{}, &model.PointValue{}, &model.LatestDataValue{})
+	return db.AutoMigrate(&model.Server{}, &model.Device{}, &model.PointValue{}, &model.LatestDataValue{})
 }
 
 // closeORM closes the underlying SQL DB associated with the GORM connection.
 func closeORM(db *gorm.DB) error {
-    sqlDB, err := db.DB()
-    if err != nil {
-        return err
-    }
-    return sqlDB.Close()
+	sqlDB, err := db.DB()
+	if err != nil {
+		return err
+	}
+	return sqlDB.Close()
 }
 
 // insertPointValue persists a new point value row using the provided context.
 func insertPointValue(ctx context.Context, db *gorm.DB, pv *model.PointValue) error {
-    return db.WithContext(ctx).Create(pv).Error
+	return db.WithContext(ctx).Create(pv).Error
 }
 
 // InsertPointValuesBatch inserts multiple point values efficiently.
 func InsertPointValuesBatch(ctx context.Context, db *gorm.DB, pvs []model.PointValue, batchSize int) error {
-    if batchSize <= 0 {
-        batchSize = 1000
-    }
-    if len(pvs) == 0 {
-        return nil
-    }
-    return db.WithContext(ctx).CreateInBatches(pvs, batchSize).Error
+	if batchSize <= 0 {
+		batchSize = 1000
+	}
+	if len(pvs) == 0 {
+		return nil
+	}
+	return db.WithContext(ctx).CreateInBatches(pvs, batchSize).Error
 }
 
 // upsertServer inserts or updates a server definition.
 func upsertServer(ctx context.Context, db *gorm.DB, s *model.Server) error {
-    return db.WithContext(ctx).Save(s).Error
+	return db.WithContext(ctx).Save(s).Error
 }
 
 // CreateServer creates a new server.
 func CreateServer(ctx context.Context, db *gorm.DB, s *model.Server) error {
-    return db.WithContext(ctx).Create(s).Error
+	return db.WithContext(ctx).Create(s).Error
 }
 
 // GetServer retrieves a server by server_id.
@@ -169,4 +169,67 @@ func LatestPointsORM(ctx context.Context, db *gorm.DB, serverID, deviceID string
 		return nil, err
 	}
 	return out, nil
+}
+
+// --------------------
+// Additional CRUD helpers
+// --------------------
+
+// UpsertServer inserts or updates a server definition (exported helper).
+func UpsertServer(ctx context.Context, db *gorm.DB, s *model.Server) error {
+	return db.WithContext(ctx).Save(s).Error
+}
+
+// CreatePointValue inserts a new point_values row.
+func CreatePointValue(ctx context.Context, db *gorm.DB, pv *model.PointValue) error {
+	return db.WithContext(ctx).Create(pv).Error
+}
+
+// GetPointValue retrieves a point_values row by primary ID.
+func GetPointValue(ctx context.Context, db *gorm.DB, id uint) (*model.PointValue, error) {
+	var pv model.PointValue
+	if err := db.WithContext(ctx).First(&pv, "id = ?", id).Error; err != nil {
+		return nil, err
+	}
+	return &pv, nil
+}
+
+// ListPointValues lists point_values rows with optional filters.
+// When serverID/deviceID/name are non-empty they will be applied.
+// If limit > 0, limits the number of rows. Results ordered by timestamp DESC, name.
+func ListPointValues(ctx context.Context, db *gorm.DB, serverID, deviceID, name string, limit int) ([]model.PointValue, error) {
+	q := db.WithContext(ctx).Model(&model.PointValue{})
+	if serverID != "" {
+		q = q.Where("server_id = ?", serverID)
+	}
+	if deviceID != "" {
+		q = q.Where("device_id = ?", deviceID)
+	}
+	if name != "" {
+		q = q.Where("name = ?", name)
+	}
+	q = q.Order("timestamp DESC, name")
+	if limit > 0 {
+		q = q.Limit(limit)
+	}
+	var out []model.PointValue
+	if err := q.Find(&out).Error; err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// UpdatePointValue updates an existing point_values row (by primary key in pv.ID).
+func UpdatePointValue(ctx context.Context, db *gorm.DB, pv *model.PointValue) error {
+	return db.WithContext(ctx).Save(pv).Error
+}
+
+// DeletePointValue deletes a point_values row by ID.
+func DeletePointValue(ctx context.Context, db *gorm.DB, id uint) error {
+	return db.WithContext(ctx).Where("id = ?", id).Delete(&model.PointValue{}).Error
+}
+
+// DeletePointValuesByDevice deletes all point_values rows for a device.
+func DeletePointValuesByDevice(ctx context.Context, db *gorm.DB, deviceID string) error {
+	return db.WithContext(ctx).Where("device_id = ?", deviceID).Delete(&model.PointValue{}).Error
 }

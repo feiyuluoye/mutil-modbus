@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"math"
 	"os"
 	"strconv"
 	"strings"
@@ -26,43 +27,60 @@ type Manager struct {
 	mu      sync.Mutex
 }
 
+// registerValue holds metadata for a single register point
+type registerValue struct {
+	regType  string
+	address  uint16
+	column   string
+	scale    float64
+	offset   float64
+	dataType string
+}
+
 // loadCSV reads a CSV file where the header row defines column names.
-// Returns a slice of rows as map[column]uint16, suitable for uint16/boolean registers.
-func loadCSV(path string) ([]map[string]uint16, error) {
-	f, err := os.Open(path)
+// Returns a slice of rows as map[column]float64, suitable for numeric transformations.
+func loadCSV(path string) ([]map[string]float64, error) {
+	file, err := os.Open(path)
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
-	r := csv.NewReader(f)
-	records, err := r.ReadAll()
+	defer file.Close()
+
+	reader := csv.NewReader(file)
+	records, err := reader.ReadAll()
 	if err != nil {
 		return nil, err
 	}
 	if len(records) < 2 {
 		return nil, errors.New("csv must contain header and at least one data row")
 	}
+
 	header := records[0]
-	row := make([]map[string]uint16, 0, len(records)-1)
-	for _, rec := range records[1:] {
-		if len(rec) != len(header) {
+	rows := make([]map[string]float64, 0, len(records)-1)
+	for _, record := range records[1:] {
+		if len(record) != len(header) {
 			return nil, errors.New("csv record length mismatch")
 		}
-		m := make(map[string]uint16, len(header))
+		row := make(map[string]float64, len(header))
 		for i, key := range header {
-			v, err := strconv.ParseUint(rec[i], 10, 16)
+			valStr := strings.TrimSpace(record[i])
+			if valStr == "" {
+				return nil, fmt.Errorf("empty value for column %s", key)
+			}
+			val, err := strconv.ParseFloat(valStr, 64)
 			if err != nil {
 				return nil, fmt.Errorf("invalid value for column %s: %w", key, err)
 			}
-			m[strings.TrimSpace(key)] = uint16(v)
+			row[key] = val
 		}
-		row = append(row, m)
+		rows = append(rows, row)
 	}
-	return row, nil
+	return rows, nil
 }
 
 // applyRowToServer writes one CSV row into the server's registers based on point names.
-func applyRowToServer(server *modbus.Server, s collector.ServerConfig, rows []map[string]uint16, index int) {
+// Applies scale and offset transformations and supports multiple data types.
+func applyRowToServer(server *modbus.Server, s collector.ServerConfig, rows []map[string]float64, index int) {
 	if len(rows) == 0 {
 		return
 	}
@@ -70,23 +88,117 @@ func applyRowToServer(server *modbus.Server, s collector.ServerConfig, rows []ma
 	for _, dev := range s.Devices {
 		for _, p := range dev.Points {
 			key := strings.TrimSpace(p.Name)
-			val, ok := row[key]
+			raw, ok := row[key]
 			if !ok {
 				// no matching column; skip
 				continue
 			}
-			switch strings.ToLower(p.RegisterType) {
-			case "holding":
-				_ = server.SetHoldingRegister(p.Address, val)
-			case "input":
-				_ = server.SetInputRegister(p.Address, val)
+
+			// Apply scale and offset
+			scale := p.Scale
+			if scale == 0 {
+				scale = 1
+			}
+			scaled := raw*scale + p.Offset
+
+			// Get data type, default to uint16 for numeric registers
+			dataType := strings.ToLower(p.DataType)
+			regType := strings.ToLower(p.RegisterType)
+
+			switch regType {
+			case "holding", "input":
+				if dataType == "" {
+					dataType = "uint16"
+				}
+				if err := writeNumericRegister(server, regType, p.Address, dataType, scaled); err != nil {
+					log.Printf("set %s register: %v", regType, err)
+				}
 			case "coil":
-				_ = server.SetCoil(p.Address, val > 0)
+				_ = server.SetCoil(p.Address, scaled > 0)
 			case "discrete":
-				_ = server.SetDiscreteInput(p.Address, val > 0)
+				_ = server.SetDiscreteInput(p.Address, scaled > 0)
 			}
 		}
 	}
+}
+
+// writeNumericRegister writes a numeric value to a register with the specified data type
+func writeNumericRegister(server *modbus.Server, regType string, address uint16, dataType string, scaled float64) error {
+	switch dataType {
+	case "uint16":
+		word, err := floatToUint16(scaled)
+		if err != nil {
+			return err
+		}
+		return setRegisterWord(server, regType, address, word)
+	case "int16":
+		word, err := floatToInt16(scaled)
+		if err != nil {
+			return err
+		}
+		return setRegisterWord(server, regType, address, word)
+	case "float32":
+		return setRegisterFloat32(server, regType, address, scaled)
+	default:
+		return fmt.Errorf("unsupported data type %s", dataType)
+	}
+}
+
+// setRegisterWord sets a single 16-bit word to a register
+func setRegisterWord(server *modbus.Server, regType string, address uint16, word uint16) error {
+	switch regType {
+	case "holding":
+		return server.SetHoldingRegister(address, word)
+	case "input":
+		return server.SetInputRegister(address, word)
+	default:
+		return fmt.Errorf("register type %s does not support word writes", regType)
+	}
+}
+
+// setRegisterFloat32 writes a float32 value across two consecutive registers
+func setRegisterFloat32(server *modbus.Server, regType string, address uint16, scaled float64) error {
+	if math.IsNaN(scaled) || math.IsInf(scaled, 0) {
+		return fmt.Errorf("invalid float32 value")
+	}
+	if address == math.MaxUint16 {
+		return fmt.Errorf("address %d out of range for float32", address)
+	}
+	f32 := float32(scaled)
+	if math.IsInf(float64(f32), 0) {
+		return fmt.Errorf("value %f overflows float32", scaled)
+	}
+	bits := math.Float32bits(f32)
+	hi := uint16(bits >> 16)
+	lo := uint16(bits & 0xFFFF)
+	if err := setRegisterWord(server, regType, address, hi); err != nil {
+		return err
+	}
+	return setRegisterWord(server, regType, address+1, lo)
+}
+
+// floatToUint16 converts a float64 to uint16 with range checking
+func floatToUint16(value float64) (uint16, error) {
+	if math.IsNaN(value) || math.IsInf(value, 0) {
+		return 0, fmt.Errorf("invalid uint16 value")
+	}
+	rounded := math.Round(value)
+	if rounded < 0 || rounded > 65535 {
+		return 0, fmt.Errorf("value %f out of range for uint16", value)
+	}
+	return uint16(rounded), nil
+}
+
+// floatToInt16 converts a float64 to int16 with range checking
+func floatToInt16(value float64) (uint16, error) {
+	if math.IsNaN(value) || math.IsInf(value, 0) {
+		return 0, fmt.Errorf("invalid int16 value")
+	}
+	rounded := math.Round(value)
+	if rounded < -32768 || rounded > 32767 {
+		return 0, fmt.Errorf("value %f out of range for int16", value)
+	}
+	return uint16(int16(rounded)), nil
 }
 
 func NewManager(cfg collector.RootConfig) *Manager {
@@ -162,9 +274,14 @@ func (m *Manager) Run(ctx context.Context) error {
 			}
 
 			// Load CSV data and periodically write to registers following cmd/server simulator
-			rows, err := loadCSV("data/example_data.csv")
+			// Use CSV file from config or default to data/topway_dashboard.csv
+			csvPath := s.CSVFile
+			if csvPath == "" {
+				csvPath = "data/topway_dashboard.csv"
+			}
+			rows, err := loadCSV(csvPath)
 			if err != nil {
-				log.Printf("server %s: load csv failed: %v (skipping periodic updates)", s.ServerID, err)
+				log.Printf("server %s: load csv %s failed: %v (skipping periodic updates)", s.ServerID, csvPath, err)
 			} else if len(rows) == 0 {
 				log.Printf("server %s: csv has no data rows (skipping periodic updates)", s.ServerID)
 			} else {
