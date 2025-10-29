@@ -1,0 +1,34 @@
+# Mock RTU-over-TCP endpoints (serial-style params for documentation)
+endpoints:
+  # - name: "lineA"
+  #   listen_address: "0.0.0.0:5020"
+  #   slave_id: 1
+  #   baud_rate: 9600
+  #   data_bits: 8
+  #   stop_bits: 1
+  #   parity: "N"
+  #   update_interval: "2s"
+
+  # - name: "lineB"
+  #   listen_address: "0.0.0.0:5021"
+  #   slave_id: 2
+  #   baud_rate: 19200
+  #   data_bits: 8
+  #   stop_bits: 1
+  #   parity: "N"
+  #   update_interval: "5s"
+  # Scheme #1: Real/Virtual Serial (e.g., created by socat/com0com)
+  # On macOS/Linux you can create a pair: /tmp/vport1 <-> /tmp/vport2
+  # This endpoint opens /tmp/vport1; connect your Master to /tmp/vport2
+  - name: "serial-auto"
+    serial_port: "/tmp/vport1"
+    spawn_socat: true
+    socat_link: "/tmp/vport1"
+    socat_peer: "/tmp/vport2"
+    slave_id: 3
+    baud_rate: 9600
+    data_bits: 8
+    stop_bits: 1
+    parity: "N"
+    update_interval: "3s"
+
