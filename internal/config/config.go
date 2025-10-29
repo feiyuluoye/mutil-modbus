@@ -11,6 +11,7 @@ import (
 
 type Config struct {
 	Server         ServerSettings
+	Client         ServerSettings
 	Registers      []RegisterConfig
 	CSVFile        string
 	UpdateInterval string
@@ -18,6 +19,15 @@ type Config struct {
 
 type ServerSettings struct {
 	ListenAddress string
+	Mode          string // "tcp" or "rtu"
+	SerialPort    string
+	BaudRate      int
+	DataBits      int
+	StopBits      int
+	Parity        string // N,E,O
+	// Optional fields tolerated by parser (not necessarily used everywhere)
+	SlaveID        int
+	UpdateInterval string
 }
 
 type RegisterConfig struct {
@@ -59,6 +69,8 @@ func Load(path string) (Config, error) {
 				currentSection = "registers"
 			} else if section == "server" {
 				currentSection = "server"
+			} else if section == "client" {
+				currentSection = "client"
 			} else {
 				return Config{}, fmt.Errorf("unsupported section %s on line %d", section, lineNum)
 			}
@@ -79,6 +91,10 @@ func Load(path string) (Config, error) {
 			}
 		case "server":
 			if err := assignServer(&cfg.Server, key, value); err != nil {
+				return Config{}, fmt.Errorf("line %d: %w", lineNum, err)
+			}
+		case "client":
+			if err := assignServer(&cfg.Client, key, value); err != nil {
 				return Config{}, fmt.Errorf("line %d: %w", lineNum, err)
 			}
 		case "registers":
@@ -129,6 +145,41 @@ func assignServer(server *ServerSettings, key, value string) error {
 	switch key {
 	case "listen_address":
 		server.ListenAddress = parseString(value)
+	case "mode":
+		server.Mode = strings.ToLower(parseString(value))
+	case "serial_port":
+		server.SerialPort = parseString(value)
+	case "path":
+		// accept "path" as alias for serial_port
+		server.SerialPort = parseString(value)
+	case "baud_rate":
+		v, err := strconv.ParseInt(parseString(value), 10, 32)
+		if err != nil {
+			return fmt.Errorf("invalid baud_rate: %w", err)
+		}
+		server.BaudRate = int(v)
+	case "data_bits":
+		v, err := strconv.ParseInt(parseString(value), 10, 32)
+		if err != nil {
+			return fmt.Errorf("invalid data_bits: %w", err)
+		}
+		server.DataBits = int(v)
+	case "stop_bits":
+		v, err := strconv.ParseInt(parseString(value), 10, 32)
+		if err != nil {
+			return fmt.Errorf("invalid stop_bits: %w", err)
+		}
+		server.StopBits = int(v)
+	case "parity":
+		server.Parity = strings.ToUpper(parseString(value))
+	case "slave_id":
+		v, err := strconv.ParseInt(parseString(value), 10, 32)
+		if err != nil {
+			return fmt.Errorf("invalid slave_id: %w", err)
+		}
+		server.SlaveID = int(v)
+	case "update_interval":
+		server.UpdateInterval = parseString(value)
 	default:
 		return fmt.Errorf("unknown server key %s", key)
 	}

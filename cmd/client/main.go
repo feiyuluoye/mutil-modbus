@@ -33,43 +33,38 @@ func main() {
     if cfg.Client.Mode != "" || cfg.Client.SerialPort != "" || cfg.Client.ListenAddress != "" {
         settings = cfg.Client
     }
-    // Build client handler from chosen settings
-    mode := strings.ToLower(settings.Mode)
-    timeout := 5 * time.Second
-    sid := uint8(1)
-    if settings.SlaveID > 0 {
-        sid = uint8(settings.SlaveID)
-    }
-
-	var client mb.Client
-    if mode == "rtu" || strings.TrimSpace(settings.SerialPort) != "" {
-        port := strings.TrimSpace(settings.SerialPort)
-        if port == "" {
-            log.Fatalf("serial_port/path is required for RTU mode")
+    // Helper to open a client and return a closer
+    openClient := func() (mb.Client, func(), error) {
+        mode := strings.ToLower(settings.Mode)
+        timeout := 5 * time.Second
+        sid := uint8(1)
+        if settings.SlaveID > 0 { sid = uint8(settings.SlaveID) }
+        if mode == "rtu" || strings.TrimSpace(settings.SerialPort) != "" {
+            port := strings.TrimSpace(settings.SerialPort)
+            if port == "" { return nil, nil, fmt.Errorf("serial_port/path is required for RTU mode") }
+            if _, err := os.Stat(port); err != nil { return nil, nil, fmt.Errorf("serial port %s not ready: %v", port, err) }
+            rh := mb.NewRTUClientHandler(port)
+            if settings.BaudRate > 0 { rh.BaudRate = settings.BaudRate }
+            if settings.DataBits > 0 { rh.DataBits = settings.DataBits }
+            if settings.StopBits > 0 { rh.StopBits = settings.StopBits }
+            if p := strings.ToUpper(strings.TrimSpace(settings.Parity)); p != "" { rh.Parity = p }
+            rh.Timeout = timeout
+            rh.IdleTimeout = 100 * time.Millisecond
+            rh.SlaveId = sid
+            if err := rh.Connect(); err != nil { return nil, nil, fmt.Errorf("connect (rtu): %w", err) }
+            return mb.NewClient(rh), func(){ _ = rh.Close() }, nil
         }
-        if _, err := os.Stat(port); err != nil {
-            log.Fatalf("serial port %s not ready: %v", port, err)
-        }
-        rh := mb.NewRTUClientHandler(port)
-        if settings.BaudRate > 0 { rh.BaudRate = settings.BaudRate }
-        if settings.DataBits > 0 { rh.DataBits = settings.DataBits }
-        if settings.StopBits > 0 { rh.StopBits = settings.StopBits }
-        if p := strings.ToUpper(strings.TrimSpace(settings.Parity)); p != "" { rh.Parity = p }
-        rh.Timeout = timeout
-        rh.IdleTimeout = 100 * time.Millisecond
-        rh.SlaveId = sid
-        if err := rh.Connect(); err != nil { log.Fatalf("connect (rtu): %v", err) }
-        defer rh.Close()
-        client = mb.NewClient(rh)
-    } else {
         address := normalizeAddress(settings.ListenAddress)
         th := mb.NewTCPClientHandler(address)
         th.Timeout = timeout
         th.SlaveId = sid
-        if err := th.Connect(); err != nil { log.Fatalf("connect (tcp): %v", err) }
-        defer th.Close()
-        client = mb.NewClient(th)
+        if err := th.Connect(); err != nil { return nil, nil, fmt.Errorf("connect (tcp): %w", err) }
+        return mb.NewClient(th), func(){ _ = th.Close() }, nil
     }
+
+    client, closeClient, err := openClient()
+    if err != nil { log.Fatalf("open client: %v", err) }
+    defer closeClient()
 
     // Determine poll interval: prefer [client].update_interval, then root, else 5s
     intervalStr := settings.UpdateInterval
@@ -91,6 +86,24 @@ func main() {
             case "holding":
                 value, err := readNumericRegister(client, r, true)
                 if err != nil {
+                    // Auto-reconnect on common serial FD/select errors
+                    es := strings.ToLower(err.Error())
+                    if strings.Contains(es, "bad file descriptor") || strings.Contains(es, "could not select") {
+                        log.Printf("warn: read error '%v', reconnecting...", err)
+                        closeClient()
+                        time.Sleep(300 * time.Millisecond)
+                        var e error
+                        client, closeClient, e = openClient()
+                        if e != nil { log.Printf("reconnect failed: %v", e); break }
+                        // retry once after reconnect
+                        if v2, e2 := readNumericRegister(client, r, true); e2 == nil {
+                            value = v2
+                            break
+                        } else {
+                            log.Printf("read holding %d after reconnect failed: %v", r.Address, e2)
+                            break
+                        }
+                    }
                     log.Printf("read holding %d: %v", r.Address, err)
                     continue
                 }
