@@ -1,0 +1,5 @@
+Server_ID,Device_ID,Vendor,Slave_ID,Poll_Interval
+modbus_server,modbus_dashboard_one,modbus,1,5s
+modbus_server,modbus_dashboard_two,modbus,1,5s
+modbus_server_2,modbus_dashboard_three,modbus,1,5s
+modbus_server_4,modbus_dashboard_four,modbus,1,5s

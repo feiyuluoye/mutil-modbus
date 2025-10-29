@@ -1,0 +1,4 @@
+Server_ID,Server_Name,Protocol,Host,Port,Path,Baud_Rate,Data_Bits,Stop_Bits,Parity,Timeout,Retry_Count,Enabled,Type
+modbus_server,modbus Water Treatment,modbus-tcp,0.0.0.0,1502,,,,,,10s,3,TRUE,points
+modbus_server_2,modbus Water Treatment 2,modbus-tcp,0.0.0.0,1502,,,,,,10s,3,TRUE,points
+modbus_server_4,modbus Water Treatment 4,modbus-tcp,0.0.0.0,1502,,,,,,10s,3,TRUE,points
