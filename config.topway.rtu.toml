@@ -2,14 +2,24 @@ csv_file = "data/topway_dashboard.csv"
 update_interval = "5s"
 
 [server]
-mode = "tcp"
-listen_address = ":1502"
-
+mode = "rtu"
+slave_id = 1  
+path = "/tmp/vport1"
+baud_rate = 9600
+data_bits = 8
+stop_bits = 1
+parity = "N"
+update_interval = "5s"
 
 [client]
-mode = "tcp"
-listen_address = ":1502"
-
+mode = "rtu"
+slave_id = 1
+path = "/tmp/vport2"
+baud_rate = 9600
+data_bits = 8
+stop_bits = 1
+parity = "N"
+update_interval = "5s"
 
 [[registers]]
 type = "holding"
